@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.10"
 
 [[package]]
-name = "abaqus-mcp-bridge"
+name = "abaqus-control-mcp"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

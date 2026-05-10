@@ -8,7 +8,7 @@
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/downloads/)
 [![Abaqus 2024](https://img.shields.io/badge/Abaqus-2024-brightgreen)](#)
 
-**Abaqus Control MCP** is a Model Context Protocol (MCP) bridge that lets you control a live Abaqus/CAE GUI session from Claude, Cursor, or any MCP-compatible AI client. Write Python code in natural language, and it runs instantly in the active Abaqus kernel—no background processes, no script files, no polling.
+**Abaqus Control MCP** is a Model Context Protocol (MCP) bridge that lets you control a live Abaqus/CAE GUI session from Claude, Cursor, or any MCP-compatible AI client. Describe your analysis in natural language, and AI generates the Python code that runs instantly in the active Abaqus kernel—no background processes, no intermediate script files, no polling.
 
 This is a **local, trusted automation tool** for engineers who want to integrate AI into their FEM workflow. The bridge listens on `127.0.0.1` by default, so all communication stays on your machine.
 
@@ -51,19 +51,28 @@ The GUI plugin runs in the Abaqus GUI thread, preventing threading issues with `
 
 - **Abaqus 2024** (Windows)
 - **Python 3.10+** (for the local environment, not Abaqus-side)
-- **uv** (UV package manager for Python)
+- **uv** (Python package manager — [install guide](https://docs.astral.sh/uv/getting-started/installation/))
 
 ### Setup
 
-1. **Clone and install**
+1. **Clone the repository**
 
 ```bash
-git clone https://github.com/yourusername/abaqus-control-mcp.git
-cd abaqus-control-mcp
+git clone https://github.com/Whfkl/Abaqus-Control-MCP.git
+cd Abaqus-Control-MCP
+```
+
+2. **Install Python dependencies**
+
+```bash
 uv sync
 ```
 
-2. **Install the Abaqus/CAE GUI plugin**
+> **Installation note**: If `uv sync` fails with a build error like `Expected a Python module at: src\abaqus_control_mcp\__init__.py`, make sure your `pyproject.toml` uses the `hatchling` build backend (not `uv_build`) with a proper `[tool.hatch.build.targets.wheel]` section pointing to the correct package directory. See the [pyproject.toml](pyproject.toml) in this repo for the correct configuration.
+
+3. **Install the Abaqus/CAE GUI plugin**
+
+Open **PowerShell** and run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install_gui_plugin.ps1
@@ -71,34 +80,49 @@ powershell -ExecutionPolicy Bypass -File .\install_gui_plugin.ps1
 
 The plugin is installed to `C:\Users\<YourUser>\abaqus_plugins\abaqus_mcp_gui_plugin.py`.
 
-3. **Restart Abaqus/CAE**, then activate the plugin via menu:
+4. **Restart Abaqus/CAE**, then activate the plugin via menu:
 
 ```
 Plug-ins -> Abaqus -> Start MCP GUI Agent
 ```
 
-4. **Verify connectivity**
+5. **Verify connectivity**
 
 ```powershell
 uv run abaqus-control-check
 ```
 
-Expected output:
+Expected output (actual values will vary):
 
 ```
 Abaqus MCP agent is reachable.
 Ping:
 {
-  "models": [...],
+  "python": "3.10.5 (main, Aug 12 2023) [MSC v.1934 64 bit (AMD64)]",
+  "executable": "D:\\SIMULIA\\EstProducts\\2024\\win_b64\\code\\bin\\ABQcaeK.exe",
+  "platform": "Windows-10-10.0.26200-SP0",
+  "pid": 17644,
+  "models": [
+    "Model-1"
+  ],
+  "viewports": [
+    "Viewport: 1"
+  ],
   "guiProcess": {
+    "python": "3.10.5",
+    "platform": "Windows-10-10.0.26200-SP0",
     "thread": "MainThread"
   }
 }
 ```
 
+> If you see `Abaqus MCP agent is reachable.` with a `"thread": "MainThread"` entry, the connection is working.
+
 ## Usage
 
 ### Starting the MCP Server
+
+> **Make sure Abaqus/CAE is running** with the MCP GUI Agent plugin activated before starting the MCP server. The server connects to an existing Abaqus/CAE session.
 
 In your MCP client configuration (Claude Desktop, Cursor, etc.), add:
 
@@ -108,7 +132,7 @@ In your MCP client configuration (Claude Desktop, Cursor, etc.), add:
     "abaqus": {
       "command": "uv",
       "args": ["run", "abaqus-control-mcp-server"],
-      "cwd": "/path/to/abaqus-control-mcp",
+      "cwd": "D:/path/to/Abaqus-Control-MCP",
       "env": {
         "ABAQUS_MCP_HOST": "127.0.0.1",
         "ABAQUS_MCP_PORT": "48152",
@@ -118,6 +142,14 @@ In your MCP client configuration (Claude Desktop, Cursor, etc.), add:
   }
 }
 ```
+
+| Environment Variable | Default | Description |
+|----------------------|---------|-------------|
+| `ABAQUS_MCP_HOST` | `127.0.0.1` | Host address for the TCP bridge |
+| `ABAQUS_MCP_PORT` | `48152` | Port for the TCP bridge |
+| `ABAQUS_MCP_TIMEOUT` | `120` | Timeout in seconds for Python execution |
+
+> **Windows path tip**: Use forward slashes (`D:/path/to/...`) or escaped backslashes (`D:\\path\\to\\...`) in the `cwd` field — JSON does not allow unescaped backslashes.
 
 ### Example: Use Claude to Generate a Cantilever Beam
 
@@ -211,11 +243,14 @@ A: The plugin bridges the **first** GUI instance that activates it. If you need 
 
 | Issue | Solution |
 |-------|----------|
-| No output from `uv run abaqus-control-mcp-server` | Normal for stdio MCP Server |
-| `JSON parse error` when pressing Enter | Don't send empty lines to stdio server |
-| `Module abaqusGui can only be used in Abaqus/CAE GUI` | Use Plug-ins menu, not File -> Run Script |
-| Connection `timed out` | Check plugin log in `$env:TEMP\abaqus_mcp_gui_plugin.log` |
-| Model doesn't appear in GUI | Verify `abaqus-control-check` shows `MainThread` and `models` list |
+| `uv sync` fails: `Expected a Python module at: src\abaqus_control_mcp\__init__.py` | The `uv_build` backend incorrectly infers the package name from the project name. Use `hatchling` build backend instead — see [pyproject.toml](pyproject.toml) for the correct config |
+| `uv sync` warns about `uv_build` not found | Install hatchling: `uv add --dev hatchling`, then update `pyproject.toml` to use `hatchling.build` |
+| No output from `uv run abaqus-control-mcp-server` | **Normal** for stdio MCP Server — it doesn't print logs to stdout |
+| `JSON parse error` when pressing Enter | Don't send empty lines to the stdio server |
+| `Module abaqusGui can only be used in Abaqus/CAE GUI` | Use **Plug-ins -> Abaqus -> Start MCP GUI Agent** menu, not File -> Run Script |
+| Connection `timed out` | Check the plugin log at `$env:TEMP\abaqus_mcp_gui_plugin.log` |
+| Model doesn't appear in GUI | Verify `uv run abaqus-control-check` shows `"thread": "MainThread"` and a non-empty `models` list |
+| `uv` command not found | Install uv from https://docs.astral.sh/uv/getting-started/installation/ |
 
 ## Contributing
 
@@ -236,4 +271,4 @@ MIT License — see [LICENSE](LICENSE) file for details.
 
 **Made with ❤️ for Abaqus automation**
 
-Questions? Suggestions? [Open an issue](https://github.com/yourusername/abaqus-control-mcp/issues) or discuss on GitHub Discussions.
+Questions? Suggestions? [Open an issue](https://github.com/Whfkl/Abaqus-Control-MCP/issues) or discuss on GitHub Discussions.
