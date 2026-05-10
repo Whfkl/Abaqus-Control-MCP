@@ -7,11 +7,15 @@ name = "abaqus-control-mcp"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "anyio" },
     { name = "mcp" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mcp", specifier = ">=1.0.0" }]
+requires-dist = [
+    { name = "anyio", specifier = ">=3.0.0" },
+    { name = "mcp", specifier = ">=1.0.0" },
+]
 
 [[package]]
 name = "annotated-types"

@@ -7,6 +7,7 @@ requires-python = ">=3.10"
 keywords = ["abaqus", "mcp", "automation", "cae", "finite-element", "claude", "ai"]
 dependencies = [
     "mcp>=1.0.0",
+    "anyio>=3.0.0",
 ]
 
 [project.scripts]

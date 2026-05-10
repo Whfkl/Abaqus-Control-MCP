@@ -69,7 +69,7 @@ Plug-ins -> Abaqus -> Start MCP GUI Agent
 <td>
 
 ```bash
-uv run abaqus-control-mcp-server
+abaqus-control-mcp-server
 ```
 
 </td>
@@ -82,14 +82,14 @@ uv run abaqus-control-mcp-server
 </tr>
 </table>
 
-> **Once both are running**, your MCP client (Claude Desktop, Cursor, etc.) can connect and start controlling Abaqus with natural language.
+> **Once both are running**, your MCP client (Claude Code, Claude Desktop, Cursor, etc.) can connect and start controlling Abaqus with natural language.
 
 ### What You'll See
 
 ```
-Terminal:  uv run abaqus-control-mcp-server  ← keeps running
+Terminal:  abaqus-control-mcp-server  ← keeps running
 Abaqus:    Plug-ins → Abaqus → Start MCP GUI Agent  ← keeps running
-Claude:    Describe your analysis task in natural language
+Claude/Claude Code:    Describe your analysis task in natural language
             → generates Python code → sends to Abaqus → executes → returns result
                                                                       ↓
                                                     Model appears in your Abaqus/CAE in real-time
@@ -103,14 +103,13 @@ Claude:    Describe your analysis task in natural language
 ┌─────────────────────────────────────┐
 │          Terminal (PC-side)          │
 │  ┌─────────────────────────────┐    │
-│  │ uv run abaqus-control-     │    │
-│  │       mcp-server           │    │
+│  │ abaqus-control-mcp-server   │    │
 │  └──────────┬──────────────────┘    │
 │             │ MCP stdio protocol    │
 │             ▼                       │
 │  ┌─────────────────────────────┐    │
-│  │   MCP Client (Claude,       │    │
-│  │   Cursor, ...)              │    │
+│  │   MCP Client (Claude Code,   │    │
+│  │   Claude Desktop, Cursor)    │    │
 │  └─────────────────────────────┘    │
 └────────────────┬────────────────────┘
                  │ TCP (127.0.0.1:48152)
@@ -135,26 +134,32 @@ Claude:    Describe your analysis task in natural language
 
 - **Abaqus 2024** (Windows)
 - **Python 3.10+** (for the local environment, not Abaqus-side)
-- **uv** (Python package manager — [install guide](https://docs.astral.sh/uv/getting-started/installation/))
 
-### Setup
+### Option A: Install from GitHub (recommended)
 
-1. **Clone the repository**
+No clone needed — `pip` installs directly from GitHub:
+
+```bash
+pip install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
+```
+
+This makes `abaqus-control-mcp-server` and `abaqus-control-check` globally available.
+
+> **Tip**: If you use `uv`, you can instead run `uv tool install git+https://github.com/Whfkl/Abaqus-Control-MCP.git` to install into a managed environment.
+
+### Option B: Local development install
+
+1. **Clone and install**
 
 ```bash
 git clone https://github.com/Whfkl/Abaqus-Control-MCP.git
 cd Abaqus-Control-MCP
+pip install -e .
 ```
 
-2. **Install Python dependencies**
+> **If you use uv instead of pip**: Run `uv sync` then use `uv run abaqus-control-mcp-server` to start the server.
 
-```bash
-uv sync
-```
-
-> **Installation note**: If `uv sync` fails with a build error like `Expected a Python module at: src\abaqus_control_mcp\__init__.py`, make sure your `pyproject.toml` uses the `hatchling` build backend (not `uv_build`) with a proper `[tool.hatch.build.targets.wheel]` section pointing to the correct package directory. See the [pyproject.toml](pyproject.toml) in this repo for the correct configuration.
-
-3. **Install the Abaqus/CAE GUI plugin**
+### Install the Abaqus/CAE GUI plugin
 
 Open **PowerShell** and run:
 
@@ -173,7 +178,7 @@ Plug-ins -> Abaqus -> Start MCP GUI Agent
 5. **Verify connectivity**
 
 ```powershell
-uv run abaqus-control-check
+abaqus-control-check
 ```
 
 Expected output (actual values will vary):
@@ -208,19 +213,19 @@ If you haven't installed yet, see [Installation](#installation) first.
 
 Once installed, refer to the [Quick Start](#quick-start) above — the daily workflow is just **2 steps**.
 
-### Starting the MCP Server
+### Configure your MCP Client
 
-> **Make sure Abaqus/CAE is running** with the MCP GUI Agent plugin activated before starting the MCP server. The server connects to an existing Abaqus/CAE session.
+> **Make sure Abaqus/CAE is running** with the MCP GUI Agent plugin activated before connecting. The server connects to an existing Abaqus/CAE session.
 
-In your MCP client configuration (Claude Desktop, Cursor, etc.), add:
+#### Claude Code
+
+Create or edit `.claude/mcp.json` in your project (or `~/.claude/mcp.json` for global use):
 
 ```json
 {
   "mcpServers": {
     "abaqus": {
-      "command": "uv",
-      "args": ["run", "abaqus-control-mcp-server"],
-      "cwd": "D:/path/to/Abaqus-Control-MCP",
+      "command": "abaqus-control-mcp-server",
       "env": {
         "ABAQUS_MCP_HOST": "127.0.0.1",
         "ABAQUS_MCP_PORT": "48152",
@@ -231,17 +236,42 @@ In your MCP client configuration (Claude Desktop, Cursor, etc.), add:
 }
 ```
 
+Claude Code will automatically start the server when needed. No manual terminal required — just make sure the Abaqus plugin is running first.
+
+> **Alternative with uv (no pip install)**: If you cloned the repo and use `uv`, set `"command": "uv"`, `"args": ["run", "abaqus-control-mcp-server"]`, and add `"cwd": "D:/path/to/Abaqus-Control-MCP"`.
+
+#### Claude Desktop / Cursor
+
+In your MCP client settings, add:
+
+```json
+{
+  "mcpServers": {
+    "abaqus": {
+      "command": "abaqus-control-mcp-server",
+      "env": {
+        "ABAQUS_MCP_HOST": "127.0.0.1",
+        "ABAQUS_MCP_PORT": "48152",
+        "ABAQUS_MCP_TIMEOUT": "120"
+      }
+    }
+  }
+}
+```
+
+#### Environment Variables
+
 | Environment Variable | Default | Description |
 |----------------------|---------|-------------|
 | `ABAQUS_MCP_HOST` | `127.0.0.1` | Host address for the TCP bridge |
 | `ABAQUS_MCP_PORT` | `48152` | Port for the TCP bridge |
 | `ABAQUS_MCP_TIMEOUT` | `120` | Timeout in seconds for Python execution |
 
-> **Windows path tip**: Use forward slashes (`D:/path/to/...`) or escaped backslashes (`D:\\path\\to\\...`) in the `cwd` field — JSON does not allow unescaped backslashes.
+> **Windows path tip**: If using the `uv` + `cwd` approach, use forward slashes (`D:/path/to/...`) or escaped backslashes (`D:\\path\\to\\...`) — JSON does not allow unescaped backslashes.
 
 ### Example: Use Claude to Generate a Cantilever Beam
 
-In Claude Desktop or Cursor:
+In Claude Code, Claude Desktop, or Cursor:
 
 ```
 Me: Create a 1000mm x 100mm x 100mm steel cantilever beam model with 1000 elements.
@@ -375,14 +405,14 @@ A: The plugin bridges the **first** GUI instance that activates it. If you need 
 
 | Issue | Solution |
 |-------|----------|
-| `uv sync` fails: `Expected a Python module at: src\abaqus_control_mcp\__init__.py` | The `uv_build` backend incorrectly infers the package name from the project name. Use `hatchling` build backend instead — see [pyproject.toml](pyproject.toml) for the correct config |
-| `uv sync` warns about `uv_build` not found | Install hatchling: `uv add --dev hatchling`, then update `pyproject.toml` to use `hatchling.build` |
-| No output from `uv run abaqus-control-mcp-server` | **Normal** for stdio MCP Server — it doesn't print logs to stdout |
+| `pip install` fails: `hatchling` not found | Install hatchling: `pip install hatchling`, then retry |
+| `command not found: abaqus-control-mcp-server` | The pip install didn't add scripts to PATH. Try `python -m abaqus_mcp_bridge.server` or reinstall with `pip install --user` |
+| No output from `abaqus-control-mcp-server` | **Normal** for stdio MCP Server — it doesn't print logs to stdout |
 | `JSON parse error` when pressing Enter | Don't send empty lines to the stdio server |
 | `Module abaqusGui can only be used in Abaqus/CAE GUI` | Use **Plug-ins -> Abaqus -> Start MCP GUI Agent** menu, not File -> Run Script |
 | Connection `timed out` | Check the plugin log at `$env:TEMP\abaqus_mcp_gui_plugin.log` |
-| Model doesn't appear in GUI | Verify `uv run abaqus-control-check` shows `"thread": "MainThread"` and a non-empty `models` list |
-| `uv` command not found | Install uv from https://docs.astral.sh/uv/getting-started/installation/ |
+| Model doesn't appear in GUI | Verify `abaqus-control-check` shows `"thread": "MainThread"` and a non-empty `models` list |
+| Claude Code can't find the server | Make sure `abaqus-control-mcp-server` is in your PATH. Try `where abaqus-control-mcp-server` in terminal to verify. If using `uv`, add `"cwd"` to the MCP config pointing to the repo directory |
 
 ## Contributing
 

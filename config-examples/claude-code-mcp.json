@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "abaqus": {
+      "command": "abaqus-control-mcp-server",
+      "env": {
+        "ABAQUS_MCP_HOST": "127.0.0.1",
+        "ABAQUS_MCP_PORT": "48152",
+        "ABAQUS_MCP_TIMEOUT": "120"
+      }
+    }
+  }
+}
