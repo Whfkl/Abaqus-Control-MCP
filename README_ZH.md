@@ -275,6 +275,18 @@ print(result['return_value'])  # {'model_name': 'Test'}
 
 ## 可用的 MCP 工具
 
+| 工具 | 说明 |
+|------|------|
+| `abaqus_ping` | 检查连接 + 会话状态（模型、视口、PID） |
+| `abaqus_execute_python` | 在 Abaqus 内核中执行任意 Python 代码 |
+| `abaqus_get_model_info` | 列出所有模型的零件、材料、分析步、载荷、边界条件 |
+| `abaqus_list_jobs` | 列出所有作业及状态、类型、模型关联 |
+| `abaqus_submit_job` | 提交作业并等待完成 |
+| `abaqus_get_odb_info` | 只读打开 ODB：分析步、帧、场/历史变量列表 |
+| `abaqus_get_field_output` | 提取场输出数据（S/E/U/RF），返回最小值/最大值/平均值 |
+| `abaqus_get_history_output` | 提取 ODB 历史输出时程曲线 |
+| `abaqus_get_viewport_image` | 截取视口图像为 base64（PNG/JPEG/TIFF/SVG） |
+
 ### `abaqus_ping`
 
 检查 Abaqus 插件是否运行，获取当前会话状态：
@@ -290,20 +302,51 @@ print(result['return_value'])  # {'model_name': 'Test'}
 - **多行代码**：使用 `exec()`，返回 `result` 变量（如定义）
 - **非序列化对象**：返回 `repr()` 和类型名称
 
-响应包含：
-- `mode`：`"eval"` 或 `"exec"`
-- `ok`：成功时为 `true`
-- `return_value`：结果
-- `stdout`、`stderr`：捕获的输出
+响应包含 `mode`、`ok`、`return_value`、`stdout`、`stderr`。
 
-## 快速演示
+### `abaqus_get_model_info`
 
-```powershell
-# 创建演示用悬臂梁模型
-uv run abaqus-control-demo
-```
+返回会话中每个模型的结构化信息：零件名、材料名、分析步名、载荷、边界条件、相互作用、装配实例、视口详情。
 
-一个 1000×100×100mm 的钢制悬臂梁模型（640 个单元）将出现在你活跃的 Abaqus/CAE 模型树中。
+### `abaqus_list_jobs`
+
+返回所有 `mdb.jobs` 条目，含状态、类型、模型名、描述、CPU/内存设置。
+
+### `abaqus_submit_job`
+
+提交作业并阻塞直到完成。默认超时 600 秒。返回最终状态和 ODB 路径。
+
+### `abaqus_get_odb_info`
+
+只读打开 ODB 文件，返回：标题、描述、零件/实例名、分析步列表（含帧数/时间）、可用场/历史变量名。
+
+### `abaqus_get_field_output`
+
+从 ODB 提取场输出。参数：`odb_path`、`step_name`、`frame_index`、`output_variable`（如 "S"、"U"、"E"、"RF"）、`instance_name`、`position`。
+
+返回汇总统计（最小值/最大值/平均值）及单元/节点值样本。
+
+### `abaqus_get_history_output`
+
+提取时程曲线。如果 `history_output_name` 为空，列出所有可用历史输出；否则返回 `[(time, value), ...]` 数据点。
+
+### `abaqus_get_viewport_image`
+
+截取视口图像为 base64。支持格式：`PNG`、`JPEG`、`TIFF`、`SVG`。`viewport_name` 留空则截取当前视口。
+
+## MCP 资源
+
+| URI | 说明 |
+|-----|------|
+| `abaqus://status` | 实时插件状态（模型、视口、PID、平台） |
+
+## MCP 提示
+
+| 提示 | 用途 |
+|------|------|
+| `abaqus_scripting_strategy` | MCP 环境下写 Abaqus Python 代码的最佳实践 |
+| `abaqus_workflow_create_and_run` | 端到端工作流：创建 → 提交 → 后处理 |
+| `abaqus_odb_postprocessing` | ODB 结果提取与解读指南 |
 
 ## 常见问题
 

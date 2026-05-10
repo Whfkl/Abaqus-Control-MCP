@@ -12,7 +12,6 @@ dependencies = [
 [project.scripts]
 abaqus-control-mcp-server = "abaqus_mcp_bridge.server:main"
 abaqus-control-check = "abaqus_mcp_bridge.cli:check_main"
-abaqus-control-demo = "abaqus_mcp_bridge.cli:demo_cantilever_main"
 
 [build-system]
 requires = ["hatchling"]

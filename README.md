@@ -276,6 +276,18 @@ print(result['return_value'])  # {'model_name': 'Test'}
 
 ## MCP Tools Available
 
+| Tool | Description |
+|------|-------------|
+| `abaqus_ping` | Check connectivity + session state (models, viewports, PID) |
+| `abaqus_execute_python` | Execute arbitrary Python code in the Abaqus kernel |
+| `abaqus_get_model_info` | List parts, materials, steps, loads, BCs, interactions for all models |
+| `abaqus_list_jobs` | List all analysis jobs with status, type, model association |
+| `abaqus_submit_job` | Submit a job by name and wait for completion |
+| `abaqus_get_odb_info` | Open ODB read-only: steps, frames, field/history output variables |
+| `abaqus_get_field_output` | Extract field output data (S/E/U/RF) with min/max/mean stats |
+| `abaqus_get_history_output` | Extract time-history curves from ODB history outputs |
+| `abaqus_get_viewport_image` | Capture any viewport screenshot as base64 (PNG/JPEG/TIFF/SVG) |
+
 ### `abaqus_ping`
 
 Check if the Abaqus plugin is running and fetch current session state:
@@ -289,22 +301,54 @@ Execute Python code in the active Abaqus/CAE kernel:
 
 - **Single-line expressions**: Uses `eval()`, returns the expression value
 - **Multi-line code**: Uses `exec()`, returns the `result` variable if defined
-- **Return non-serializable objects**: Returns `repr()` and type name
+- **Non-serializable objects**: Returns `repr()` and type name
 
-Response includes:
-- `mode`: `"eval"` or `"exec"`
-- `ok`: `true` if successful
-- `return_value`: The result
-- `stdout`, `stderr`: Captured output
+Response includes `mode`, `ok`, `return_value`, `stdout`, `stderr`.
 
-## Quick Demo
+### `abaqus_get_model_info`
 
-```powershell
-# Create a demo cantilever beam model
-uv run abaqus-control-demo
-```
+Returns structured info for every model in the session: part names, material names, step names, loads, boundary conditions, interactions, assembly instances, and viewport details.
 
-A 1000×100×100mm steel cantilever beam with 640 elements will appear in your active Abaqus/CAE Model Tree.
+### `abaqus_list_jobs`
+
+Returns all `mdb.jobs` entries with status, type, model name, description, CPU/memory settings.
+
+### `abaqus_submit_job`
+
+Submit a job and block until completion. Default timeout is 600s. Returns final status and ODB path.
+
+### `abaqus_get_odb_info`
+
+Opens an ODB file in read-only mode and returns: title, description, part/instance names, step list with frame count/times, and available field/history output variable names.
+
+### `abaqus_get_field_output`
+
+Extract field output from an ODB. Parameters:
+- `odb_path`, `step_name`, `frame_index`, `output_variable` (e.g. "S", "U", "E", "RF"), `instance_name`, `position`
+
+Returns summary statistics (min/max/mean) and a sample of element/node values.
+
+### `abaqus_get_history_output`
+
+Extract time-history curves. If `history_output_name` is empty, lists all available history outputs per region. Otherwise returns `[(time, value), ...]` data points.
+
+### `abaqus_get_viewport_image`
+
+Capture a viewport screenshot as base64. Supported formats: `PNG`, `JPEG`, `TIFF`, `SVG`. Leave `viewport_name` empty for the current viewport.
+
+## MCP Resources
+
+| URI | Description |
+|-----|-------------|
+| `abaqus://status` | Real-time plugin status (models, viewports, PID, platform) |
+
+## MCP Prompts
+
+| Prompt | Purpose |
+|--------|---------|
+| `abaqus_scripting_strategy` | Best practices for writing Abaqus Python code via MCP |
+| `abaqus_workflow_create_and_run` | End-to-end workflow: create → submit → post-process |
+| `abaqus_odb_postprocessing` | Guide for extracting and interpreting ODB results |
 
 ## FAQ
 
