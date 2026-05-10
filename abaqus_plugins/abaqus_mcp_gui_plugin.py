@@ -1,0 +1,352 @@
+"""Abaqus/CAE GUI-side MCP bridge plugin.
+
+Place this file in an Abaqus plugin search directory, then start it from:
+Plug-ins -> Abaqus -> Start MCP GUI Agent
+"""
+
+from abaqusGui import (
+    AFXForm,
+    FXMAPFUNC,
+    SEL_COMMAND,
+    SEL_TIMEOUT,
+    getAFXApp,
+    sendCommand,
+    showAFXErrorDialog,
+)
+import base64
+import json
+import os
+import platform
+import queue
+import socketserver
+import sys
+import tempfile
+import threading
+import time
+import traceback
+import uuid
+
+HOST = "127.0.0.1"
+PORT = int(os.environ.get("ABAQUS_MCP_PORT", "48152"))
+LOG_PATH = os.path.join(tempfile.gettempdir(), "abaqus_mcp_gui_plugin.log")
+
+
+def _log(message):
+    try:
+        with open(LOG_PATH, "a") as handle:
+            handle.write("%s %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), message))
+    except Exception:
+        pass
+
+
+def _announce(message):
+    print(message)
+    try:
+        main_window = getAFXApp().getAFXMainWindow()
+        if hasattr(main_window, "writeToMessageArea"):
+            main_window.writeToMessageArea(message)
+    except Exception:
+        pass
+
+
+def _send(sock, payload):
+    data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    sock.sendall(data + b"\n")
+
+
+def _recv(sock):
+    chunks = []
+    while True:
+        chunk = sock.recv(4096)
+        if not chunk:
+            raise RuntimeError("socket closed before a complete message was received")
+        newline = chunk.find(b"\n")
+        if newline >= 0:
+            chunks.append(chunk[:newline])
+            break
+        chunks.append(chunk)
+    return json.loads(b"".join(chunks).decode("utf-8"))
+
+
+def _kernel_wrapper(code, response_path):
+    encoded_code = base64.b64encode(code.encode("utf-8")).decode("ascii")
+    encoded_path = base64.b64encode(response_path.encode("utf-8")).decode("ascii")
+    template = r'''
+import ast
+import base64
+import contextlib
+import io
+import json
+import os
+import sys
+import traceback
+
+code = base64.b64decode("__ABAQUS_MCP_CODE__").decode("utf-8")
+response_path = base64.b64decode("__ABAQUS_MCP_RESPONSE__").decode("utf-8")
+
+def _jsonable(value):
+    try:
+        json.dumps(value, ensure_ascii=False)
+        return value
+    except Exception:
+        return {
+            "repr": repr(value),
+            "type": "%s.%s" % (type(value).__module__, type(value).__name__),
+        }
+
+namespace = globals().setdefault("_ABAQUS_MCP_GLOBALS", {
+    "__name__": "__abaqus_mcp_exec__",
+    "__doc__": None,
+})
+namespace.update({
+    "mdb": globals().get("mdb"),
+    "session": globals().get("session"),
+})
+
+stdout = io.StringIO()
+stderr = io.StringIO()
+returned = None
+mode = "exec"
+payload = None
+
+try:
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        try:
+            parsed = ast.parse(code, mode="eval")
+        except SyntaxError:
+            parsed = ast.parse(code, mode="exec")
+            compiled = compile(parsed, "<abaqus-mcp>", "exec")
+            exec(compiled, namespace, namespace)
+            returned = namespace.get("result")
+        else:
+            mode = "eval"
+            compiled = compile(parsed, "<abaqus-mcp>", "eval")
+            returned = eval(compiled, namespace, namespace)
+
+    payload = {
+        "ok": True,
+        "result": {
+            "mode": mode,
+            "ok": True,
+            "return_value": _jsonable(returned),
+            "stdout": stdout.getvalue(),
+            "stderr": stderr.getvalue(),
+        },
+    }
+except Exception as exc:
+    payload = {
+        "ok": False,
+        "error": {
+            "message": str(exc),
+            "type": "%s.%s" % (type(exc).__module__, type(exc).__name__),
+            "traceback": traceback.format_exc(),
+            "stdout": stdout.getvalue(),
+            "stderr": stderr.getvalue(),
+        },
+    }
+
+with open(response_path, "w") as handle:
+    json.dump(payload, handle, ensure_ascii=False)
+'''
+    return (
+        template.replace("__ABAQUS_MCP_CODE__", encoded_code)
+        .replace("__ABAQUS_MCP_RESPONSE__", encoded_path)
+    )
+
+
+def _run_kernel_code(code, timeout):
+    response_path = os.path.join(
+        tempfile.gettempdir(), "abaqus_mcp_%s.json" % uuid.uuid4().hex
+    )
+    command = _kernel_wrapper(code, response_path)
+    _log("sendCommand start response_path=%s" % response_path)
+    sendCommand(command, False, False)
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if os.path.exists(response_path):
+            with open(response_path, "r") as handle:
+                payload = json.load(handle)
+            try:
+                os.remove(response_path)
+            except Exception:
+                pass
+            if not payload.get("ok"):
+                error = payload.get("error", {})
+                _log("kernel error: %s" % error.get("message", "kernel command failed"))
+                raise RuntimeError(error.get("message", "kernel command failed"))
+            _log("kernel response ok")
+            return payload["result"]
+        time.sleep(0.05)
+
+    raise TimeoutError("timed out waiting for Abaqus kernel response")
+
+
+class McpGuiHandler(socketserver.BaseRequestHandler):
+    def handle(self):
+        request_id = None
+        try:
+            message = _recv(self.request)
+            request_id = message.get("id")
+            method = message.get("method")
+            params = message.get("params") or {}
+            _log("request method=%s id=%s" % (method, request_id))
+
+            if _DISPATCHER is None:
+                raise RuntimeError("GUI dispatcher is not initialized")
+
+            wait_timeout = float(params.get("timeout") or os.environ.get("ABAQUS_MCP_TIMEOUT", "60")) + 5.0
+            item = GuiRequest(method, params)
+            _REQUESTS.put(item)
+            _log("queued method=%s id=%s" % (method, request_id))
+
+            if not item.event.wait(wait_timeout):
+                raise TimeoutError("timed out waiting for GUI dispatcher")
+            if item.error is not None:
+                raise item.error
+            result = item.result
+
+            _send(self.request, {"id": request_id, "ok": True, "result": result})
+            _log("response ok id=%s" % request_id)
+        except Exception as exc:
+            _log("response error id=%s error=%s" % (request_id, exc))
+            _send(
+                self.request,
+                {
+                    "id": request_id,
+                    "ok": False,
+                    "error": {
+                        "message": str(exc),
+                        "type": "%s.%s" % (type(exc).__module__, type(exc).__name__),
+                        "traceback": traceback.format_exc(),
+                    },
+                },
+            )
+
+
+class McpGuiServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    allow_reuse_address = False
+    daemon_threads = True
+
+
+_SERVER = None
+_DISPATCHER = None
+_REQUESTS = queue.Queue()
+
+
+class GuiRequest:
+    def __init__(self, method, params):
+        self.method = method
+        self.params = params
+        self.event = threading.Event()
+        self.result = None
+        self.error = None
+
+
+def _handle_on_gui_thread(item):
+    method = item.method
+    params = item.params
+    timeout = float(params.get("timeout") or os.environ.get("ABAQUS_MCP_TIMEOUT", "60"))
+
+    if method == "ping":
+        code = (
+            "import os, sys, platform\n"
+            "from abaqus import mdb, session\n"
+            "result = {'python': sys.version, 'executable': sys.executable, "
+            "'platform': platform.platform(), 'pid': os.getpid(), "
+            "'models': list(mdb.models.keys()), "
+            "'viewports': list(session.viewports.keys())}"
+        )
+        result = _run_kernel_code(code, timeout)
+        result = result["return_value"]
+        result["guiProcess"] = {
+            "python": sys.version,
+            "platform": platform.platform(),
+            "thread": threading.current_thread().name,
+        }
+        return result
+
+    if method == "execute":
+        code = params.get("code")
+        if not isinstance(code, str) or not code.strip():
+            raise ValueError("params.code must be a non-empty string")
+        return _run_kernel_code(code, timeout)
+
+    raise ValueError("unknown method: %r" % method)
+
+
+def start_gui_agent():
+    global _SERVER
+    if _SERVER is not None:
+        _log("start requested, already running")
+        return "Abaqus MCP GUI agent is already running on %s:%s" % (HOST, PORT)
+    _log("starting GUI agent on %s:%s" % (HOST, PORT))
+    _SERVER = McpGuiServer((HOST, PORT), McpGuiHandler)
+    thread = threading.Thread(target=_SERVER.serve_forever, name="AbaqusMcpGuiAgent")
+    thread.daemon = True
+    thread.start()
+    _log("started GUI agent")
+    return "Abaqus MCP GUI agent listening on %s:%s" % (HOST, PORT)
+
+
+class McpGuiAgentForm(AFXForm):
+    ID_START = AFXForm.ID_LAST + 1
+    ID_POLL = AFXForm.ID_LAST + 2
+
+    def __init__(self, owner):
+        global _DISPATCHER
+        AFXForm.__init__(self, owner)
+        FXMAPFUNC(self, SEL_COMMAND, self.ID_START, McpGuiAgentForm.onCmdStart)
+        FXMAPFUNC(self, SEL_TIMEOUT, self.ID_POLL, McpGuiAgentForm.onTimeout)
+        _DISPATCHER = self
+
+    def getFirstDialog(self):
+        self.onCmdStart(None, None, None)
+        return None
+
+    def _schedule_poll(self):
+        getAFXApp().addTimeout(100, self, self.ID_POLL)
+
+    def onTimeout(self, sender, sel, ptr):
+        processed = 0
+        while processed < 5:
+            try:
+                item = _REQUESTS.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                _log("GUI thread handling method=%s" % item.method)
+                item.result = _handle_on_gui_thread(item)
+                _log("GUI thread handled method=%s" % item.method)
+            except Exception as exc:
+                item.error = exc
+                _log("GUI thread error method=%s error=%s" % (item.method, exc))
+            finally:
+                item.event.set()
+            processed += 1
+
+        if _SERVER is not None:
+            self._schedule_poll()
+        return 1
+
+    def onCmdStart(self, sender, sel, ptr):
+        try:
+            message = start_gui_agent()
+            self._schedule_poll()
+            _announce(message)
+            _announce("Abaqus MCP GUI plugin log: %s" % LOG_PATH)
+        except Exception as exc:
+            message = "Abaqus MCP GUI agent failed: %s" % exc
+            _log(message)
+            showAFXErrorDialog(getAFXApp().getAFXMainWindow(), message)
+        return 1
+
+toolset = getAFXApp().getAFXMainWindow().getPluginToolset()
+toolset.registerGuiMenuButton(
+    object=McpGuiAgentForm(toolset),
+    buttonText="Abaqus|Start MCP GUI Agent",
+    version="0.1.0",
+    author="Codex",
+    applicableModules=["Part", "Property", "Assembly", "Step", "Interaction", "Load", "Mesh", "Job", "Visualization"],
+    description="Start a GUI-side MCP socket bridge for the active Abaqus/CAE session.",
+)
