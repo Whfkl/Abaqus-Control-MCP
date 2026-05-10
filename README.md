@@ -45,6 +45,67 @@ Live Model Tree & Results
 
 The GUI plugin runs in the Abaqus GUI thread, preventing threading issues with `mdb` and `session`. Requests are queued and executed by the GUI main loop—safe and responsive.
 
+## Quick Start (tl;dr)
+
+After completing the [Installation](#installation) steps once, every time you want to use Abaqus Control MCP, you need **two things running at the same time**:
+
+<table>
+<tr>
+<th>① In Abaqus/CAE → Plug-ins menu</th>
+<th>② In your terminal</th>
+</tr>
+<tr>
+<td>
+
+```
+Plug-ins -> Abaqus -> Start MCP GUI Agent
+```
+
+</td>
+<td>
+
+```bash
+uv run abaqus-control-mcp-server
+```
+
+</td>
+</tr>
+</table>
+
+> **That's it.** Keep both running, then connect your MCP client (Claude Desktop, Cursor, etc.) to start controlling Abaqus with natural language.
+
+### Visual Flow
+
+```
+┌─────────────────────────────────────┐
+│          Terminal (PC-side)          │
+│  ┌─────────────────────────────┐    │
+│  │ uv run abaqus-control-     │    │
+│  │       mcp-server           │    │
+│  └──────────┬──────────────────┘    │
+│             │ MCP stdio protocol    │
+│             ▼                       │
+│  ┌─────────────────────────────┐    │
+│  │   MCP Client (Claude,       │    │
+│  │   Cursor, ...)              │    │
+│  └─────────────────────────────┘    │
+└────────────────┬────────────────────┘
+                 │ TCP (127.0.0.1:48152)
+                 ▼
+┌─────────────────────────────────────┐
+│         Abaqus/CAE (GUI-side)       │
+│  ┌─────────────────────────────┐    │
+│  │  Plug-ins → Abaqus → Start  │    │
+│  │      MCP GUI Agent          │    │
+│  └──────────┬──────────────────┘    │
+│             ▼                       │
+│  ┌─────────────────────────────┐    │
+│  │   Abaqus Kernel Python      │    │
+│  │   (mdb, session objects)    │    │
+│  └─────────────────────────────┘    │
+└─────────────────────────────────────┘
+```
+
 ## Installation
 
 ### Prerequisites
@@ -119,6 +180,13 @@ Ping:
 > If you see `Abaqus MCP agent is reachable.` with a `"thread": "MainThread"` entry, the connection is working.
 
 ## Usage
+
+This project has **two pieces that must run simultaneously**:
+
+| # | What | Where | How |
+|---|------|-------|-----|
+| 1 | **MCP GUI Agent plugin** | Inside Abaqus/CAE | `Plug-ins -> Abaqus -> Start MCP GUI Agent` |
+| 2 | **MCP Server** | Your terminal | `uv run abaqus-control-mcp-server` (or via MCP client config) |
 
 ### Starting the MCP Server
 

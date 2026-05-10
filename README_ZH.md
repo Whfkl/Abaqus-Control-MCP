@@ -45,6 +45,67 @@ Abaqus/CAE 内核 Python 3.10
 
 GUI 插件在 Abaqus GUI 线程中运行，避免了与 `mdb` 和 `session` 的线程问题。请求被排队并由 GUI 主循环执行——安全且响应迅速。
 
+## 快速开始（一句话版）
+
+> **完成一次[安装](#安装)后**，每次使用 Abaqus Control MCP，你必须同时保持**两样东西在运行**：
+
+<table>
+<tr>
+<th>① 在 Abaqus/CAE → Plug-ins 菜单中</th>
+<th>② 在你的终端中</th>
+</tr>
+<tr>
+<td>
+
+```
+Plug-ins -> Abaqus -> Start MCP GUI Agent
+```
+
+</td>
+<td>
+
+```bash
+uv run abaqus-control-mcp-server
+```
+
+</td>
+</tr>
+</table>
+
+> **就这么简单。** 两个都启动后，你的 MCP 客户端（Claude Desktop、Cursor 等）就能连接上来，用自然语言控制 Abaqus 了。
+
+### 运行示意图
+
+```
+┌─────────────────────────────────────┐
+│          你的电脑（终端侧）          │
+│  ┌─────────────────────────────┐    │
+│  │ uv run abaqus-control-     │    │
+│  │       mcp-server           │    │
+│  └──────────┬──────────────────┘    │
+│             │ MCP stdio 协议        │
+│             ▼                       │
+│  ┌─────────────────────────────┐    │
+│  │   MCP 客户端 (Claude,       │    │
+│  │   Cursor, ...)              │    │
+│  └─────────────────────────────┘    │
+└────────────────┬────────────────────┘
+                 │ TCP (127.0.0.1:48152)
+                 ▼
+┌─────────────────────────────────────┐
+│       Abaqus/CAE（GUI 侧）          │
+│  ┌─────────────────────────────┐    │
+│  │  Plug-ins → Abaqus → Start  │    │
+│  │      MCP GUI Agent          │    │
+│  └──────────┬──────────────────┘    │
+│             ▼                       │
+│  ┌─────────────────────────────┐    │
+│  │   Abaqus 内核 Python        │    │
+│  │   (mdb, session 对象)       │    │
+│  └─────────────────────────────┘    │
+└─────────────────────────────────────┘
+```
+
 ## 安装
 
 ### 前置条件
@@ -119,6 +180,13 @@ Ping:
 > 如果看到 `Abaqus MCP agent is reachable.` 且包含 `"thread": "MainThread"`，说明连接成功。
 
 ## 使用方式
+
+本项目需要**同时运行两个部分**：
+
+| # | 什么 | 在哪里 | 怎么做 |
+|---|------|--------|--------|
+| 1 | **MCP GUI Agent 插件** | Abaqus/CAE 内部 | `Plug-ins -> Abaqus -> Start MCP GUI Agent` |
+| 2 | **MCP Server** | 你的终端 | `uv run abaqus-control-mcp-server`（或通过 MCP 客户端配置） |
 
 ### 启动 MCP 服务
 
