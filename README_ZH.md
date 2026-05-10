@@ -45,14 +45,18 @@ Abaqus/CAE 内核 Python 3.10
 
 GUI 插件在 Abaqus GUI 线程中运行，避免了与 `mdb` 和 `session` 的线程问题。请求被排队并由 GUI 主循环执行——安全且响应迅速。
 
-## 快速开始（一句话版）
+## 快速开始
 
-> **完成一次[安装](#安装)后**，每次使用 Abaqus Control MCP，你必须同时保持**两样东西在运行**：
+### 日常使用流程（安装一次后，每天只需两步）
+
+每次使用 Abaqus Control MCP，你需要同时运行 **两个组件**：
+
+> **步骤 A**（在 Abaqus/CAE 中启动插件）+ **步骤 B**（在终端启动 MCP Server）
 
 <table>
 <tr>
-<th>① 在 Abaqus/CAE → Plug-ins 菜单中</th>
-<th>② 在你的终端中</th>
+<th width="50%">步骤 A：在 Abaqus/CAE 中</th>
+<th width="50%">步骤 B：在终端中</th>
 </tr>
 <tr>
 <td>
@@ -70,9 +74,27 @@ uv run abaqus-control-mcp-server
 
 </td>
 </tr>
+<tr>
+<td>✅ 插件将在 Abaqus GUI 中启动<br>
+    TCP 监听 127.0.0.1:48152</td>
+<td>✅ MCP Server 启动 stdio 服务<br>
+    等待 MCP 客户端连接</td>
+</tr>
 </table>
 
-> **就这么简单。** 两个都启动后，你的 MCP 客户端（Claude Desktop、Cursor 等）就能连接上来，用自然语言控制 Abaqus 了。
+> **两个都启动后**，你的 MCP 客户端（Claude Desktop、Cursor 等）就能连接上来，用自然语言控制 Abaqus 了。
+
+### 预期效果
+
+```
+终端侧:  uv run abaqus-control-mcp-server  ← 持续运行
+Abaqus:  Plug-ins → Abaqus → Start MCP GUI Agent  ← 持续运行
+Claude:  用自然语言描述分析任务             ← 生成代码→发送→执行→返回结果
+                                                      ↓
+                                           模型在你的 Abaqus/CAE 中实时显示
+```
+
+> ⚠️ **重要**：必须先启动 Abaqus 侧的插件（步骤 A），再启动 MCP Server（步骤 B）。顺序反了会导致连接失败。
 
 ### 运行示意图
 
@@ -181,12 +203,9 @@ Ping:
 
 ## 使用方式
 
-本项目需要**同时运行两个部分**：
+如果还没安装，请先参考[安装](#安装)步骤。
 
-| # | 什么 | 在哪里 | 怎么做 |
-|---|------|--------|--------|
-| 1 | **MCP GUI Agent 插件** | Abaqus/CAE 内部 | `Plug-ins -> Abaqus -> Start MCP GUI Agent` |
-| 2 | **MCP Server** | 你的终端 | `uv run abaqus-control-mcp-server`（或通过 MCP 客户端配置） |
+安装完成后，日常使用只需参考上面的[快速开始](#快速开始)——每天只需 **两步**。
 
 ### 启动 MCP 服务
 

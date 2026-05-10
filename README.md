@@ -45,14 +45,18 @@ Live Model Tree & Results
 
 The GUI plugin runs in the Abaqus GUI thread, preventing threading issues with `mdb` and `session`. Requests are queued and executed by the GUI main loop—safe and responsive.
 
-## Quick Start (tl;dr)
+## Quick Start
 
-After completing the [Installation](#installation) steps once, every time you want to use Abaqus Control MCP, you need **two things running at the same time**:
+### Daily Workflow (one-time install, then just 2 steps)
+
+Every time you use Abaqus Control MCP, you need **two components running simultaneously**:
+
+> **Step A** (start plugin inside Abaqus/CAE) + **Step B** (start MCP Server in terminal)
 
 <table>
 <tr>
-<th>① In Abaqus/CAE → Plug-ins menu</th>
-<th>② In your terminal</th>
+<th width="50%">Step A: Inside Abaqus/CAE</th>
+<th width="50%">Step B: In your terminal</th>
 </tr>
 <tr>
 <td>
@@ -70,9 +74,28 @@ uv run abaqus-control-mcp-server
 
 </td>
 </tr>
+<tr>
+<td>✅ Plugin starts in Abaqus GUI<br>
+    TCP listening on 127.0.0.1:48152</td>
+<td>✅ MCP Server starts stdio service<br>
+    Waiting for MCP client connection</td>
+</tr>
 </table>
 
-> **That's it.** Keep both running, then connect your MCP client (Claude Desktop, Cursor, etc.) to start controlling Abaqus with natural language.
+> **Once both are running**, your MCP client (Claude Desktop, Cursor, etc.) can connect and start controlling Abaqus with natural language.
+
+### What You'll See
+
+```
+Terminal:  uv run abaqus-control-mcp-server  ← keeps running
+Abaqus:    Plug-ins → Abaqus → Start MCP GUI Agent  ← keeps running
+Claude:    Describe your analysis task in natural language
+            → generates Python code → sends to Abaqus → executes → returns result
+                                                                      ↓
+                                                    Model appears in your Abaqus/CAE in real-time
+```
+
+> ⚠️ **Important**: Start the Abaqus-side plugin (Step A) **before** starting the MCP Server (Step B). Reversing the order will cause a connection failure.
 
 ### Visual Flow
 
@@ -181,12 +204,9 @@ Ping:
 
 ## Usage
 
-This project has **two pieces that must run simultaneously**:
+If you haven't installed yet, see [Installation](#installation) first.
 
-| # | What | Where | How |
-|---|------|-------|-----|
-| 1 | **MCP GUI Agent plugin** | Inside Abaqus/CAE | `Plug-ins -> Abaqus -> Start MCP GUI Agent` |
-| 2 | **MCP Server** | Your terminal | `uv run abaqus-control-mcp-server` (or via MCP client config) |
+Once installed, refer to the [Quick Start](#quick-start) above — the daily workflow is just **2 steps**.
 
 ### Starting the MCP Server
 
