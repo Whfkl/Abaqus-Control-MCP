@@ -118,18 +118,21 @@ def _find_subscript_parent(source, missing_key):
     return None
 
 def _format_execution_error(source, exc):
+    tb_str = traceback.format_exc()
+    tb_lines = [l for l in tb_str.strip().splitlines() if l.strip()]
+    core_error = tb_lines[-1] if tb_lines else str(exc)
     error_type = "%s.%s" % (type(exc).__module__, type(exc).__name__)
-    feedback = str(exc)
     recovery = {}
 
     if isinstance(exc, KeyError):
         missing_key = exc.args[0] if exc.args else None
         parent_path = _find_subscript_parent(source, missing_key)
         inspect_target = parent_path or "<parent object>"
-        feedback = (
-            "KeyError: missing key %r. Use abaqus_inspect_object on %s to find "
-            "the valid keys before retrying."
-        ) % (missing_key, inspect_target)
+        suggestion = (
+            "Dictionary key not found. [MANDATORY ACTION]: "
+            "Extract the parent dictionary path and call `abaqus_inspect_object` "
+            "on %s to check valid keys."
+        ) % inspect_target
         recovery = {
             "missing_key": _jsonable(missing_key),
             "inspect_object_path": parent_path,
@@ -139,24 +142,48 @@ def _format_execution_error(source, exc):
         missing_attr = getattr(exc, "name", None)
         source_obj = getattr(exc, "obj", None)
         object_type = type(source_obj).__name__ if source_obj is not None else None
-        attr_text = " %r" % missing_attr if missing_attr else ""
-        type_text = " for object type %s" % object_type if object_type else ""
-        feedback = (
-            "AttributeError: missing attribute%s%s. Use abaqus_inspect_object "
-            "on the target object to check the available public methods and "
-            "attributes before retrying."
-        ) % (attr_text, type_text)
+        suggestion = (
+            "Method/attribute not found. [MANDATORY ACTION]: "
+            "Extract the object path and call `abaqus_inspect_object` "
+            "to check valid methods and attributes."
+        )
         recovery = {
             "missing_attribute": missing_attr,
             "object_type": object_type,
             "suggested_tool": "abaqus_inspect_object",
         }
+    elif isinstance(exc, NameError):
+        suggestion = (
+            "Variable undefined. Check imports "
+            "(e.g., `from abaqus import *` or `from abaqusConstants import *`)."
+        )
+        recovery = {"suggested_fix": "Add missing import statement."}
+    elif isinstance(exc, TypeError):
+        suggestion = (
+            "Invalid parameter type. Review standard Abaqus API arguments."
+        )
+        recovery = {"suggested_fix": "Check argument types against the Abaqus Python API reference."}
+    elif isinstance(exc, RuntimeError):
+        suggestion = (
+            "Underlying failure. Read the core_error carefully. "
+            "Verify geometry/mesh prerequisites. If unsure of object state, "
+            "use `abaqus_inspect_object`."
+        )
+        recovery = {"suggested_tool": "abaqus_inspect_object"}
+    else:
+        suggestion = (
+            "Unexpected error. Read the full_traceback for details. "
+            "If unsure of object state, use `abaqus_inspect_object`."
+        )
+        recovery = {"suggested_tool": "abaqus_inspect_object"}
 
     return {
         "ok": False,
-        "error": feedback,
+        "core_error": core_error,
+        "action_suggestion": suggestion,
+        "full_traceback": tb_str,
+        "error": core_error,
         "error_type": error_type,
-        "traceback": traceback.format_exc(),
         "recovery": recovery,
     }
 

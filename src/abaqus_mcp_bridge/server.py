@@ -152,6 +152,25 @@ async def abaqus_execute_python(code: str, timeout: float | None = None) -> dict
     If code is a single expression, the expression value is returned. Otherwise
     the code is executed and the value of a variable named `result`, if set, is
     returned. Stdout, stderr, and traceback data are included in the response.
+    Executes Python code in the active Abaqus/CAE kernel.
+    
+    ⚠️ CRITICAL RULES FOR AI AGENT (YOU MUST OBEY):
+    
+    1. INTENT DECLARATION: Before invoking this tool, you MUST output a text message to the user explaining your intent (e.g., "I will now create the geometry...").
+    
+    2. CHUNKING (STOP AFTER EACH STAGE): 
+       NEVER write the entire modeling script at once. You must break the workflow into distinct stages:
+       (A) Geometry & Mesh
+       (B) Materials & Sections
+       (C) Assembly & Steps
+       (D) Loads & BCs
+       Execute ONLY the code for the current stage, then STOP. Ask the user: "Should I proceed to the next stage?" Do not proceed until user confirms.
+       
+    3. UI HANDOFF FOR COMPLEX SELECTIONS:
+       If you need to select complex geometric entities (faces/edges for Sets/Surfaces), DO NOT write complex `findAt` code. It will fail. Stop execution, and ask the user to manually create the Set/Surface in the Abaqus GUI.
+       
+    4. ZERO GUESSING ON ERRORS:
+       If this tool returns `"ok": False`, do NOT blindly rewrite and retry. You MUST use `abaqus_inspect_object` on the parent object to check valid attributes/keys before writing new code.
     """
     if not code.strip():
         raise ValueError("code must not be empty")
@@ -599,6 +618,19 @@ def abaqus_scripting_strategy() -> str:
 2. **No Blind Guessing:** If you are unsure of a method, attribute, or dictionary key in the Abaqus API, you MUST use `abaqus_inspect_object` first.
 3. **Step-by-Step Execution (Chunking):** Never write the entire script at once. Work in stages: (A) Geometry & Mesh -> (B) Materials & Sections -> (C) Assembly & Steps -> (D) Loads & BCs. After executing the code for one stage, STOP. Summarize what was created, and explicitly ask the user: "Should I proceed to the next stage?"
 4. **UI Handoff for Complex Geometry:** Do NOT attempt to write complex `findAt` coordinate logic to select faces, edges, or vertices for Sets/Surfaces. It is highly error-prone，unless absolutely necessary. Instead, STOP execution and instruct the user: "Please manually create a Set/Surface for the required boundary condition in the Abaqus GUI. Let me know the exact name of the Set/Surface once you are done, and I will continue with the script."
+
+## Error Recovery Standard Operating Procedure (SOP)
+When `abaqus_execute_python` returns `"ok": False`, you MUST strictly follow this protocol:
+1. **Read the Error:** Analyze the `core_error` and the `action_suggestion` in the JSON response.
+2. **Execute the Suggestion:** Strictly follow the `action_suggestion`. If it mandates using `abaqus_inspect_object`, you MUST call that tool immediately to inspect the parent object or dictionary. DO NOT guess or blind-retry without inspecting first.
+3. **Silent Recovery:** DO NOT apologize to the user. DO NOT output conversational filler like "I'm sorry, let me fix that." Just silently trigger the tool call to gather the right info, rewrite the code based on the factual inspection, and execute again.
+
+## Pre-Execution Intent Declaration (MANDATORY)
+Whenever you decide to use the `abaqus_execute_python` tool, you MUST NOT call the tool silently.
+Before invoking the tool, you MUST output a single, concise sentence to the user explaining your exact intent.
+* **Format:** "I will now [action] to [purpose]."
+* **Example:** "I will now execute Python code to inspect the properties of the MohrCoulombPlasticity object."
+* **Why:** This allows the user to understand your goal when the system's security confirmation dialog appears.
 """
 
 
