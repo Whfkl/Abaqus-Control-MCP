@@ -238,6 +238,31 @@ Create or edit `.claude/mcp.json` in your project (or `~/.claude/mcp.json` for g
 
 Claude Code will automatically start the server when needed. No manual terminal required — just make sure the Abaqus plugin is running first.
 
+**Configure permissions (avoid prompts on every call)**
+
+By default, Claude Code prompts for confirmation on every MCP tool call. You can whitelist read-only tools for auto-approval while keeping prompts for higher-risk operations. Edit `~/.claude/settings.json` or project-level `.claude/settings.json`:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__abaqus__abaqus_ping",
+      "mcp__abaqus__abaqus_inspect_object",
+      "mcp__abaqus__abaqus_get_model_info",
+      "mcp__abaqus__abaqus_list_jobs",
+      "mcp__abaqus__abaqus_get_odb_info",
+      "mcp__abaqus__abaqus_get_field_output",
+      "mcp__abaqus__abaqus_get_history_output"
+    ]
+  }
+}
+```
+
+> The following tools are **not** auto-approved (still require manual confirmation):
+> - `abaqus_execute_python` — can execute arbitrary code in Abaqus
+> - `abaqus_submit_job` — submits and runs analysis jobs
+> - `abaqus_get_viewport_image` — captures viewport screenshots
+
 > **Alternative with uv (no pip install)**: If you cloned the repo and use `uv`, set `"command": "uv"`, `"args": ["run", "abaqus-control-mcp-server"]`, and add `"cwd": "D:/path/to/Abaqus-Control-MCP"`.
 
 #### Claude Desktop / Cursor

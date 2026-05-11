@@ -237,6 +237,31 @@ Ping:
 
 Claude Code 会在需要时自动启动服务，无需手动打开终端 —— 只需要确保 Abaqus 插件已在运行。
 
+**配置权限（避免每次调用都弹确认）**
+
+Claude Code 默认会在每次调用 MCP 工具时弹出确认提示。你可以将只读工具添加到白名单自动批准，同时保留高风险工具的确认提示。编辑 `~/.claude/settings.json` 或项目级 `.claude/settings.json`：
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__abaqus__abaqus_ping",
+      "mcp__abaqus__abaqus_inspect_object",
+      "mcp__abaqus__abaqus_get_model_info",
+      "mcp__abaqus__abaqus_list_jobs",
+      "mcp__abaqus__abaqus_get_odb_info",
+      "mcp__abaqus__abaqus_get_field_output",
+      "mcp__abaqus__abaqus_get_history_output"
+    ]
+  }
+}
+```
+
+> 以下工具**不会**自动批准（每次调用仍需手动确认）：
+> - `abaqus_execute_python` — 可在 Abaqus 中执行任意代码
+> - `abaqus_submit_job` — 会提交并运行分析作业
+> - `abaqus_get_viewport_image` — 会截取视口图像
+
 > **使用 uv 而不 pip 安装的替代方案**：如果你克隆了仓库并使用 `uv`，请设置 `"command": "uv"`、`"args": ["run", "abaqus-control-mcp-server"]`，并添加 `"cwd": "D:/path/to/Abaqus-Control-MCP"`。
 
 #### Claude Desktop / Cursor
