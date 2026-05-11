@@ -261,6 +261,7 @@ Claude Code 默认会在每次调用 MCP 工具时弹出确认提示。你可以
 > - `abaqus_execute_python` — 可在 Abaqus 中执行任意代码
 > - `abaqus_submit_job` — 会提交并运行分析作业
 > - `abaqus_get_viewport_image` — 会截取视口图像
+> - `abaqus_set_workdir` — 修改 Abaqus 工作目录
 
 > **使用 uv 而不 pip 安装的替代方案**：如果你克隆了仓库并使用 `uv`，请设置 `"command": "uv"`、`"args": ["run", "abaqus-control-mcp-server"]`，并添加 `"cwd": "D:/path/to/Abaqus-Control-MCP"`。
 
@@ -341,6 +342,7 @@ print(result['return_value'])  # {'model_name': 'Test'}
 | `abaqus_get_field_output` | 提取场输出数据（S/E/U/RF），返回最小值/最大值/平均值 |
 | `abaqus_get_history_output` | 提取 ODB 历史输出时程曲线 |
 | `abaqus_get_viewport_image` | 截取视口图像为 base64（PNG/JPEG/TIFF/SVG） |
+| `abaqus_set_workdir` | 修改 Abaqus 工作目录 |
 
 ### `abaqus_ping`
 
@@ -388,6 +390,10 @@ print(result['return_value'])  # {'model_name': 'Test'}
 ### `abaqus_get_viewport_image`
 
 截取视口图像为 base64。支持格式：`PNG`、`JPEG`、`TIFF`、`SVG`。`viewport_name` 留空则截取当前视口。
+
+### `abaqus_set_workdir`
+
+修改 Abaqus 工作目录。接收绝对路径 `path`，返回之前和当前的工作目录。CAE、ODB 等文件将保存到当前工作目录中。
 
 ## MCP 资源
 

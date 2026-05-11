@@ -172,6 +172,36 @@ async def abaqus_inspect_object(object_path: str, timeout: float | None = None) 
     return await _exec(_inspect_code(object_path.strip()), timeout)
 
 
+@mcp.tool()
+async def abaqus_set_workdir(path: str, timeout: float | None = None) -> dict[str, Any]:
+    """Change the Abaqus working directory.
+
+    Args:
+        path: Absolute path to set as the working directory.
+    Returns the previous and new working directory.
+    """
+    if not path.strip():
+        raise ValueError("path must not be empty")
+    code = r"""
+import os
+
+new_path = __PATH__
+
+result = {}
+try:
+    old_dir = os.getcwd()
+    if not os.path.isdir(new_path):
+        result = {'success': False, 'error': 'Directory does not exist: ' + new_path}
+    else:
+        os.chdir(new_path)
+        result = {'success': True, 'previous': old_dir, 'current': os.getcwd()}
+except Exception as e:
+    import traceback
+    result = {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
+""".replace("__PATH__", json.dumps(path.strip()))
+    return await _exec(code, timeout)
+
+
 # ---------------------------------------------------------------------------
 # Advanced query tools
 # ---------------------------------------------------------------------------
@@ -565,9 +595,10 @@ def abaqus_scripting_strategy() -> str:
     Abaqus/CAE session via the `abaqus_execute_python` tool."""
     return r"""**Engineering AI SOP for Abaqus:**
 
-1. **No Blind Guessing:** If you are unsure of a method, attribute, or dictionary key in the Abaqus API, you MUST use `abaqus_inspect_object` first.
-2. **Step-by-Step Execution (Chunking):** Never write the entire script at once. Work in stages: (A) Geometry & Mesh -> (B) Materials & Sections -> (C) Assembly & Steps -> (D) Loads & BCs. After executing the code for one stage, STOP. Summarize what was created, and explicitly ask the user: "Should I proceed to the next stage?"
-3. **UI Handoff for Complex Geometry:** Do NOT attempt to write complex `findAt` coordinate logic to select faces, edges, or vertices for Sets/Surfaces. It is highly error-prone，unless absolutely necessary. Instead, STOP execution and instruct the user: "Please manually create a Set/Surface for the required boundary condition in the Abaqus GUI. Let me know the exact name of the Set/Surface once you are done, and I will continue with the script."
+1. **Check Working Directory First:** If building a new model from scratch, you MUST first ask the user whether they want to change the working directory. Use `abaqus_set_workdir` if they confirm. Files (CAE, ODB, etc.) will be saved to the current working directory.
+2. **No Blind Guessing:** If you are unsure of a method, attribute, or dictionary key in the Abaqus API, you MUST use `abaqus_inspect_object` first.
+3. **Step-by-Step Execution (Chunking):** Never write the entire script at once. Work in stages: (A) Geometry & Mesh -> (B) Materials & Sections -> (C) Assembly & Steps -> (D) Loads & BCs. After executing the code for one stage, STOP. Summarize what was created, and explicitly ask the user: "Should I proceed to the next stage?"
+4. **UI Handoff for Complex Geometry:** Do NOT attempt to write complex `findAt` coordinate logic to select faces, edges, or vertices for Sets/Surfaces. It is highly error-prone，unless absolutely necessary. Instead, STOP execution and instruct the user: "Please manually create a Set/Surface for the required boundary condition in the Abaqus GUI. Let me know the exact name of the Set/Surface once you are done, and I will continue with the script."
 """
 
 
@@ -577,11 +608,12 @@ def abaqus_workflow_create_and_run() -> str:
     return r"""End-to-end Abaqus workflow via MCP:
 
 1. **Check session**: `abaqus_ping` - see existing models, check if clean.
-2. **Create model**: Write Python code with `from abaqus import mdb, session` and `from abaqusConstants import *`. Create parts, materials, sections, assembly, steps, loads, BCs, mesh, and job.
-3. **Submit job**: `abaqus_submit_job(job_name="YourJob")` - waits for completion.
-4. **Inspect ODB**: `abaqus_get_odb_info(odb_path="path/to/YourJob.odb")` to see available steps/frames/variables.
-5. **Extract results**: `abaqus_get_field_output(odb_path="...", output_variable="S")` for stress, `"U"` for displacement, etc.
-6. **Capture viewport**: `abaqus_get_viewport_image()` to see visual results.
+2. **Set working directory (if needed)**: If building a new model from scratch, ask the user whether to change the working directory. Use `abaqus_set_workdir(path="C:/your/project")` to set it. CAE/ODB files will be saved there.
+3. **Create model**: Write Python code with `from abaqus import mdb, session` and `from abaqusConstants import *`. Create parts, materials, sections, assembly, steps, loads, BCs, mesh, and job.
+4. **Submit job**: `abaqus_submit_job(job_name="YourJob")` - waits for completion.
+5. **Inspect ODB**: `abaqus_get_odb_info(odb_path="path/to/YourJob.odb")` to see available steps/frames/variables.
+6. **Extract results**: `abaqus_get_field_output(odb_path="...", output_variable="S")` for stress, `"U"` for displacement, etc.
+7. **Capture viewport**: `abaqus_get_viewport_image()` to see visual results.
 
 Always tell the user what you're doing at each step."""
 

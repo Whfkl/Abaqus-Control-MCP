@@ -262,6 +262,7 @@ By default, Claude Code prompts for confirmation on every MCP tool call. You can
 > - `abaqus_execute_python` — can execute arbitrary code in Abaqus
 > - `abaqus_submit_job` — submits and runs analysis jobs
 > - `abaqus_get_viewport_image` — captures viewport screenshots
+> - `abaqus_set_workdir` — changes the Abaqus working directory
 
 > **Alternative with uv (no pip install)**: If you cloned the repo and use `uv`, set `"command": "uv"`, `"args": ["run", "abaqus-control-mcp-server"]`, and add `"cwd": "D:/path/to/Abaqus-Control-MCP"`.
 
@@ -342,6 +343,7 @@ print(result['return_value'])  # {'model_name': 'Test'}
 | `abaqus_get_field_output` | Extract field output data (S/E/U/RF) with min/max/mean stats |
 | `abaqus_get_history_output` | Extract time-history curves from ODB history outputs |
 | `abaqus_get_viewport_image` | Capture any viewport screenshot as base64 (PNG/JPEG/TIFF/SVG) |
+| `abaqus_set_workdir` | Change the Abaqus working directory |
 
 ### `abaqus_ping`
 
@@ -390,6 +392,10 @@ Extract time-history curves. If `history_output_name` is empty, lists all availa
 ### `abaqus_get_viewport_image`
 
 Capture a viewport screenshot as base64. Supported formats: `PNG`, `JPEG`, `TIFF`, `SVG`. Leave `viewport_name` empty for the current viewport.
+
+### `abaqus_set_workdir`
+
+Change the Abaqus working directory. Takes an absolute `path` and returns the previous and new working directory. Files (CAE, ODB, etc.) will be saved to the current working directory.
 
 ## MCP Resources
 
