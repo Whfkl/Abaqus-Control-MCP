@@ -1,7 +1,7 @@
 """MCP stdio server that forwards Python execution requests to Abaqus.
 
 Provides high-level tools for model inspection, job management, ODB post-processing,
-and viewport capture — all implemented as Python code templates executed via the
+and viewport capture - all implemented as Python code templates executed via the
 generic `abaqus_execute_python` tool. No changes to the socket protocol are needed.
 """
 
@@ -75,6 +75,53 @@ async def _exec(code: str, timeout: float | None = None) -> dict[str, Any]:
     return await anyio.to_thread.run_sync(_client(timeout).execute, code)
 
 
+def _inspect_code(object_path: str) -> str:
+    """Build Abaqus-side code for introspecting an object path."""
+    return r"""
+from abaqus import mdb, session
+
+object_path = __OBJECT_PATH__
+
+def _jsonable_key(key):
+    try:
+        import json
+        json.dumps(key, ensure_ascii=False)
+        return key
+    except Exception:
+        return repr(key)
+
+try:
+    obj = eval(object_path, {"__builtins__": {}}, {"mdb": mdb, "session": session})
+    keys_method = getattr(obj, "keys", None)
+    if callable(keys_method):
+        result = {
+            "ok": True,
+            "object_path": object_path,
+            "kind": "mapping",
+            "type": type(obj).__name__,
+            "keys": [_jsonable_key(key) for key in keys_method()],
+        }
+    else:
+        result = {
+            "ok": True,
+            "object_path": object_path,
+            "kind": "object",
+            "type": type(obj).__name__,
+            "attributes": [name for name in dir(obj) if not name.startswith("_")],
+        }
+except Exception as exc:
+    result = {
+        "ok": False,
+        "object_path": object_path,
+        "error": "Inspection failed for %r: %s: %s" % (
+            object_path,
+            type(exc).__name__,
+            str(exc),
+        ),
+    }
+""".replace("__OBJECT_PATH__", json.dumps(object_path))
+
+
 # ---------------------------------------------------------------------------
 # Core tools
 # ---------------------------------------------------------------------------
@@ -109,6 +156,20 @@ async def abaqus_execute_python(code: str, timeout: float | None = None) -> dict
     if not code.strip():
         raise ValueError("code must not be empty")
     return await _exec(code, timeout)
+
+
+@mcp.tool()
+async def abaqus_inspect_object(object_path: str, timeout: float | None = None) -> dict[str, Any]:
+    """Inspect an Abaqus object path and return available keys or public attributes.
+
+    Examples:
+        - ``mdb.models['Model-1'].parts``
+        - ``session.viewports``
+        - ``mdb.models['Model-1'].rootAssembly``
+    """
+    if not object_path.strip():
+        raise ValueError("object_path must not be empty")
+    return await _exec(_inspect_code(object_path.strip()), timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -289,7 +350,7 @@ async def abaqus_get_field_output(
         output_variable: Field output variable name, e.g. "S" (stress), "E" (strain),
             "U" (displacement), "RF" (reaction force), "MISESMAX" etc.
         instance_name: Instance name (empty = first instance).
-        position: Output position — "INTEGRATION_POINT", "NODAL", "ELEMENT_NODAL", etc.
+        position: Output position - "INTEGRATION_POINT", "NODAL", "ELEMENT_NODAL", etc.
     Returns summary statistics (min, max, mean) and a sample of values.
     """
     code = r"""
@@ -475,7 +536,7 @@ except Exception as e:
 
 
 # ---------------------------------------------------------------------------
-# MCP Resource — real-time status
+# MCP Resource - real-time status
 # ---------------------------------------------------------------------------
 
 
@@ -494,7 +555,7 @@ def abaqus_status() -> str:
 
 
 # ---------------------------------------------------------------------------
-# MCP Prompts — guide LLM behaviour
+# MCP Prompts - guide LLM behaviour
 # ---------------------------------------------------------------------------
 
 
@@ -502,25 +563,12 @@ def abaqus_status() -> str:
 def abaqus_scripting_strategy() -> str:
     """Best practices for writing Abaqus scripts that will be sent to an active
     Abaqus/CAE session via the `abaqus_execute_python` tool."""
-    return r"""You are controlling an active Abaqus/CAE GUI session through the **abaqus_execute_python** tool.
+    return r"""**Engineering AI SOP for Abaqus:**
 
-## Key Rules
-
-1. **Session awareness**: The Abaqus kernel is ALREADY running. You share `mdb` (model database) and `session` (GUI session) with the user's interactive session. Always check existing models first: `result = list(mdb.models.keys())`.
-
-2. **Return values**: For multi-line code, set a `result` variable to return data. For single expressions, the value is returned directly. Use `result = {...}` for structured output.
-
-3. **Error handling**: Abaqus API calls may fail if objects don't exist. Use try/except and report errors clearly.
-
-4. **Resources**: Use `abaqus://status` to check the current session state. Use `abaqus_get_model_info` to inspect existing models.
-
-5. **Common patterns**:
-   - Create models: `mdb.Model(name='MyModel')`
-   - Access objects: `mdb.models['MyModel'].parts['Part-1']`
-   - Update viewport: `session.viewports[session.currentViewportName].setValues(displayedObject=assembly)`
-   - Fit view: `session.viewports[session.currentViewportName].view.fitView()`
-   - Enums: always `from abaqusConstants import *`
-   - Units: Abaqus has no built-in units — use consistent units (mm/N/s or m/N/s)."""
+1. **No Blind Guessing:** If you are unsure of a method, attribute, or dictionary key in the Abaqus API, you MUST use `abaqus_inspect_object` first.
+2. **Step-by-Step Execution (Chunking):** Never write the entire script at once. Work in stages: (A) Geometry & Mesh -> (B) Materials & Sections -> (C) Assembly & Steps -> (D) Loads & BCs. After executing the code for one stage, STOP. Summarize what was created, and explicitly ask the user: "Should I proceed to the next stage?"
+3. **UI Handoff for Complex Geometry:** Do NOT attempt to write complex `findAt` coordinate logic to select faces, edges, or vertices for Sets/Surfaces. It is highly error-prone. Instead, STOP execution and instruct the user: "Please manually create a Set/Surface for the required boundary condition in the Abaqus GUI. Let me know the exact name of the Set/Surface once you are done, and I will continue with the script."
+"""
 
 
 @mcp.prompt()
@@ -528,9 +576,9 @@ def abaqus_workflow_create_and_run() -> str:
     """End-to-end workflow for creating a model, running an analysis, and post-processing results."""
     return r"""End-to-end Abaqus workflow via MCP:
 
-1. **Check session**: `abaqus_ping` → see existing models, check if clean.
+1. **Check session**: `abaqus_ping` - see existing models, check if clean.
 2. **Create model**: Write Python code with `from abaqus import mdb, session` and `from abaqusConstants import *`. Create parts, materials, sections, assembly, steps, loads, BCs, mesh, and job.
-3. **Submit job**: `abaqus_submit_job(job_name="YourJob")` — waits for completion.
+3. **Submit job**: `abaqus_submit_job(job_name="YourJob")` - waits for completion.
 4. **Inspect ODB**: `abaqus_get_odb_info(odb_path="path/to/YourJob.odb")` to see available steps/frames/variables.
 5. **Extract results**: `abaqus_get_field_output(odb_path="...", output_variable="S")` for stress, `"U"` for displacement, etc.
 6. **Capture viewport**: `abaqus_get_viewport_image()` to see visual results.
@@ -545,14 +593,14 @@ def abaqus_odb_postprocessing() -> str:
 
 1. **Open and inspect**: `abaqus_get_odb_info(odb_path)` to see steps, frames, instances, and available field/history variables.
 2. **Field output**: Use `abaqus_get_field_output(odb_path, step_name, frame_index, output_variable)`. Common variables:
-   - `"S"` — Stress tensor components / von Mises
-   - `"U"` — Displacement (U1, U2, U3, magnitude)
-   - `"E"` — Strain tensor
-   - `"RF"` — Reaction force
-   - `"MISESMAX"` — Max von Mises (if defined)
+   - `"S"` - Stress tensor components / von Mises
+   - `"U"` - Displacement (U1, U2, U3, magnitude)
+   - `"E"` - Strain tensor
+   - `"RF"` - Reaction force
+   - `"MISESMAX"` - Max von Mises (if defined)
 3. **History output**: Use `abaqus_get_history_output(odb_path, step_name)` first to list available outputs, then call with a specific `history_output_name` to get time-history data.
 4. **Viewport**: Capture deformed shape / contour plots with `abaqus_get_viewport_image()` after setting the displayed object in Abaqus.
-5. **Limitations**: The bridge returns summary statistics (min/max/mean) and samples — not full datasets. For detailed analysis, use Abaqus/Viewer locally."""
+5. **Limitations**: The bridge returns summary statistics (min/max/mean) and samples - not full datasets. For detailed analysis, use Abaqus/Viewer locally."""
 
 
 def main() -> None:

@@ -8,6 +8,7 @@ keywords = ["abaqus", "mcp", "automation", "cae", "finite-element", "claude", "a
 dependencies = [
     "mcp>=1.0.0",
     "anyio>=3.0.0",
+    "matplotlib>=3.10.9",
 ]
 
 [project.scripts]

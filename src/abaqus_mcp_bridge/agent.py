@@ -38,6 +38,76 @@ def _jsonable(value: Any) -> Any:
         }
 
 
+def _node_source(node: ast.AST) -> str | None:
+    try:
+        return ast.unparse(node)
+    except Exception:
+        return None
+
+
+def _key_literal(node: ast.AST) -> Any:
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Index):  # pragma: no cover - compatibility for older ASTs
+        return _key_literal(node.value)
+    return None
+
+
+def _find_subscript_parent(code: str, missing_key: Any) -> str | None:
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript) and _key_literal(node.slice) == missing_key:
+            return _node_source(node.value)
+    return None
+
+
+def _format_execution_error(code: str, exc: BaseException) -> dict[str, Any]:
+    error_type = f"{type(exc).__module__}.{type(exc).__name__}"
+    feedback = str(exc)
+    recovery: dict[str, Any] = {}
+
+    if isinstance(exc, KeyError):
+        missing_key = exc.args[0] if exc.args else None
+        parent_path = _find_subscript_parent(code, missing_key)
+        inspect_target = parent_path or "<parent object>"
+        feedback = (
+            "KeyError: missing key %r. Use abaqus_inspect_object on %s to find "
+            "the valid keys before retrying."
+        ) % (missing_key, inspect_target)
+        recovery = {
+            "missing_key": _jsonable(missing_key),
+            "inspect_object_path": parent_path,
+            "suggested_tool": "abaqus_inspect_object",
+        }
+    elif isinstance(exc, AttributeError):
+        missing_attr = getattr(exc, "name", None)
+        source_obj = getattr(exc, "obj", None)
+        object_type = type(source_obj).__name__ if source_obj is not None else None
+        attr_text = " %r" % missing_attr if missing_attr else ""
+        type_text = " for object type %s" % object_type if object_type else ""
+        feedback = (
+            "AttributeError: missing attribute%s%s. Use abaqus_inspect_object "
+            "on the target object to check the available public methods and "
+            "attributes before retrying."
+        ) % (attr_text, type_text)
+        recovery = {
+            "missing_attribute": missing_attr,
+            "object_type": object_type,
+            "suggested_tool": "abaqus_inspect_object",
+        }
+
+    return {
+        "ok": False,
+        "error": feedback,
+        "error_type": error_type,
+        "traceback": traceback.format_exc(),
+        "recovery": recovery,
+    }
+
+
 def _read_message(request: socketserver.BaseRequestHandler) -> dict[str, Any]:
     chunks: list[bytes] = []
     while True:
@@ -67,18 +137,36 @@ def _execute(code: str) -> dict[str, Any]:
     returned = None
     mode = "exec"
 
+    try:
+        from abaqus import mdb, session  # type: ignore
+    except Exception:
+        pass
+    else:
+        namespace.update({"mdb": mdb, "session": session})
+
     with _EXEC_LOCK, contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
         try:
-            parsed = ast.parse(code, mode="eval")
-        except SyntaxError:
-            parsed = ast.parse(code, mode="exec")
-            compiled = compile(parsed, "<abaqus-mcp>", "exec")
-            exec(compiled, namespace, namespace)
-            returned = namespace.get("result")
-        else:
-            mode = "eval"
-            compiled = compile(parsed, "<abaqus-mcp>", "eval")
-            returned = eval(compiled, namespace, namespace)
+            try:
+                parsed = ast.parse(code, mode="eval")
+            except SyntaxError:
+                parsed = ast.parse(code, mode="exec")
+                compiled = compile(parsed, "<abaqus-mcp>", "exec")
+                exec(compiled, namespace, namespace)
+                returned = namespace.get("result")
+            else:
+                mode = "eval"
+                compiled = compile(parsed, "<abaqus-mcp>", "eval")
+                returned = eval(compiled, namespace, namespace)
+        except Exception as exc:
+            response = _format_execution_error(code, exc)
+            response.update(
+                {
+                    "mode": mode,
+                    "stdout": stdout.getvalue(),
+                    "stderr": stderr.getvalue(),
+                }
+            )
+            return response
 
     return {
         "mode": mode,

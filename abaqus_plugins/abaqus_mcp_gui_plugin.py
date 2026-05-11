@@ -94,6 +94,72 @@ def _jsonable(value):
             "type": "%s.%s" % (type(value).__module__, type(value).__name__),
         }
 
+def _node_source(node):
+    try:
+        return ast.unparse(node)
+    except Exception:
+        return None
+
+def _key_literal(node):
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Index):
+        return _key_literal(node.value)
+    return None
+
+def _find_subscript_parent(source, missing_key):
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript) and _key_literal(node.slice) == missing_key:
+            return _node_source(node.value)
+    return None
+
+def _format_execution_error(source, exc):
+    error_type = "%s.%s" % (type(exc).__module__, type(exc).__name__)
+    feedback = str(exc)
+    recovery = {}
+
+    if isinstance(exc, KeyError):
+        missing_key = exc.args[0] if exc.args else None
+        parent_path = _find_subscript_parent(source, missing_key)
+        inspect_target = parent_path or "<parent object>"
+        feedback = (
+            "KeyError: missing key %r. Use abaqus_inspect_object on %s to find "
+            "the valid keys before retrying."
+        ) % (missing_key, inspect_target)
+        recovery = {
+            "missing_key": _jsonable(missing_key),
+            "inspect_object_path": parent_path,
+            "suggested_tool": "abaqus_inspect_object",
+        }
+    elif isinstance(exc, AttributeError):
+        missing_attr = getattr(exc, "name", None)
+        source_obj = getattr(exc, "obj", None)
+        object_type = type(source_obj).__name__ if source_obj is not None else None
+        attr_text = " %r" % missing_attr if missing_attr else ""
+        type_text = " for object type %s" % object_type if object_type else ""
+        feedback = (
+            "AttributeError: missing attribute%s%s. Use abaqus_inspect_object "
+            "on the target object to check the available public methods and "
+            "attributes before retrying."
+        ) % (attr_text, type_text)
+        recovery = {
+            "missing_attribute": missing_attr,
+            "object_type": object_type,
+            "suggested_tool": "abaqus_inspect_object",
+        }
+
+    return {
+        "ok": False,
+        "error": feedback,
+        "error_type": error_type,
+        "traceback": traceback.format_exc(),
+        "recovery": recovery,
+    }
+
 namespace = globals().setdefault("_ABAQUS_MCP_GLOBALS", {
     "__name__": "__abaqus_mcp_exec__",
     "__doc__": None,
@@ -112,37 +178,48 @@ payload = None
 try:
     with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
         try:
-            parsed = ast.parse(code, mode="eval")
-        except SyntaxError:
-            parsed = ast.parse(code, mode="exec")
-            compiled = compile(parsed, "<abaqus-mcp>", "exec")
-            exec(compiled, namespace, namespace)
-            returned = namespace.get("result")
-        else:
-            mode = "eval"
-            compiled = compile(parsed, "<abaqus-mcp>", "eval")
-            returned = eval(compiled, namespace, namespace)
+            try:
+                parsed = ast.parse(code, mode="eval")
+            except SyntaxError:
+                parsed = ast.parse(code, mode="exec")
+                compiled = compile(parsed, "<abaqus-mcp>", "exec")
+                exec(compiled, namespace, namespace)
+                returned = namespace.get("result")
+            else:
+                mode = "eval"
+                compiled = compile(parsed, "<abaqus-mcp>", "eval")
+                returned = eval(compiled, namespace, namespace)
+        except Exception as exc:
+            returned_error = _format_execution_error(code, exc)
+            returned_error.update({
+                "mode": mode,
+                "stdout": stdout.getvalue(),
+                "stderr": stderr.getvalue(),
+            })
+            payload = {
+                "ok": True,
+                "result": returned_error,
+            }
 
-    payload = {
-        "ok": True,
-        "result": {
-            "mode": mode,
+    if payload is None:
+        payload = {
             "ok": True,
-            "return_value": _jsonable(returned),
-            "stdout": stdout.getvalue(),
-            "stderr": stderr.getvalue(),
-        },
-    }
+            "result": {
+                "mode": mode,
+                "ok": True,
+                "return_value": _jsonable(returned),
+                "stdout": stdout.getvalue(),
+                "stderr": stderr.getvalue(),
+            },
+        }
 except Exception as exc:
     payload = {
-        "ok": False,
-        "error": {
-            "message": str(exc),
-            "type": "%s.%s" % (type(exc).__module__, type(exc).__name__),
-            "traceback": traceback.format_exc(),
-            "stdout": stdout.getvalue(),
-            "stderr": stderr.getvalue(),
-        },
+        "ok": True,
+        "result": dict(
+            _format_execution_error(code, exc),
+            stdout=stdout.getvalue(),
+            stderr=stderr.getvalue(),
+        ),
     }
 
 with open(response_path, "w") as handle:
