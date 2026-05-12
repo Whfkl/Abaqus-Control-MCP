@@ -249,7 +249,7 @@ class AbaqusMcpHandler(socketserver.BaseRequestHandler):
 
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
-    allow_reuse_address = False
+    allow_reuse_address = True
     daemon_threads = True
 
 

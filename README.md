@@ -135,21 +135,23 @@ Claude/Claude Code:    Describe your analysis task in natural language
 - **Abaqus 2024** (Windows)
 - **Python 3.10+** (for the local environment, not Abaqus-side)
 
-### Option A: Install from GitHub (recommended)
+### Installation
 
-No clone needed — `pip` installs directly from GitHub:
+#### 1. Install the MCP package
+
+Use either `pip` or `uv`. The package install gives you the MCP server, the connectivity check, the plugin installer, and the support doctor command.
 
 ```bash
 pip install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
 ```
 
-This makes `abaqus-control-mcp-server` and `abaqus-control-check` globally available.
+If you prefer `uv`:
 
-> **Tip**: If you use `uv`, you can instead run `uv tool install git+https://github.com/Whfkl/Abaqus-Control-MCP.git` to install into a managed environment.
+```bash
+uv tool install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
+```
 
-### Option B: Local development install
-
-1. **Clone and install**
+For local development, clone the repo and install it in editable mode:
 
 ```bash
 git clone https://github.com/Whfkl/Abaqus-Control-MCP.git
@@ -157,27 +159,41 @@ cd Abaqus-Control-MCP
 pip install -e .
 ```
 
-> **If you use uv instead of pip**: Run `uv sync` then use `uv run abaqus-control-mcp-server` to start the server.
+#### 2. Install the Abaqus/CAE GUI plugin
 
-### Install the Abaqus/CAE GUI plugin
+The published package now includes a first-class installer:
 
-Open **PowerShell** and run:
+```bash
+abaqus-control-install-plugin
+```
+
+This installs the GUI plugin to `C:\Users\<YourUser>\abaqus_plugins\abaqus_mcp_gui_plugin.py` by default.
+Set `ABAQUS_MCP_PLUGIN_DIR` or pass `--target-dir` if your Abaqus plugin search path is different.
+After restart, Abaqus will show multiple MCP actions under the Abaqus-Control-MCP menu: start, status, open log, and stop.
+
+If you cloned the repo and want to use the PowerShell helper instead, run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install_gui_plugin.ps1
 ```
 
-The plugin is installed to `C:\Users\<YourUser>\abaqus_plugins\abaqus_mcp_gui_plugin.py`.
+#### 3. Restart Abaqus/CAE and verify connectivity
 
-4. **Restart Abaqus/CAE**, then activate the plugin via menu:
+Restart Abaqus/CAE, then activate the plugin from:
 
 ```
-Plug-ins -> Abaqus -> Start MCP GUI Agent
+Plug-ins -> Abaqus-Control-MCP -> Start MCP GUI Agent
 ```
 
-5. **Verify connectivity**
+Then verify the bridge:
 
-```powershell
+```bash
+abaqus-control-doctor --verify-connection
+```
+
+or, if you only want the connectivity check:
+
+```bash
 abaqus-control-check
 ```
 
@@ -436,11 +452,12 @@ A: The plugin bridges the **first** GUI instance that activates it. If you need 
 
 | Issue | Solution |
 |-------|----------|
-| `pip install` fails: `hatchling` not found | Install hatchling: `pip install hatchling`, then retry |
-| `command not found: abaqus-control-mcp-server` | The pip install didn't add scripts to PATH. Try `python -m abaqus_mcp_bridge.server` or reinstall with `pip install --user` |
+| `abaqus-control-install-plugin` not found | Reinstall the package in the same Python environment, then run `abaqus-control-doctor` to confirm the scripts are on PATH |
+| `command not found: abaqus-control-mcp-server` | The package was installed into a different Python environment. Run `abaqus-control-doctor` or reinstall with the interpreter you use to launch the client |
+| Plugin installation fails or is unclear | Run `abaqus-control-install-plugin --target-dir <path>` and inspect the JSON result; if needed, rerun with `--no-overwrite` or `-Force` in the PowerShell helper |
 | No output from `abaqus-control-mcp-server` | **Normal** for stdio MCP Server — it doesn't print logs to stdout |
 | `JSON parse error` when pressing Enter | Don't send empty lines to the stdio server |
-| `Module abaqusGui can only be used in Abaqus/CAE GUI` | Use **Plug-ins -> Abaqus -> Start MCP GUI Agent** menu, not File -> Run Script |
+| `Module abaqusGui can only be used in Abaqus/CAE GUI` | Use **Plug-ins -> Abaqus-Control-MCP -> Start MCP GUI Agent** menu, not File -> Run Script |
 | Connection `timed out` | Check the plugin log at `$env:TEMP\abaqus_mcp_gui_plugin.log` |
 | Model doesn't appear in GUI | Verify `abaqus-control-check` shows `"thread": "MainThread"` and a non-empty `models` list |
 | Claude Code can't find the server | Make sure `abaqus-control-mcp-server` is in your PATH. Try `where abaqus-control-mcp-server` in terminal to verify. If using `uv`, add `"cwd"` to the MCP config pointing to the repo directory |

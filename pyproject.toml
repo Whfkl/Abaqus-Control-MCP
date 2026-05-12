@@ -14,6 +14,13 @@ dependencies = [
 [project.scripts]
 abaqus-control-mcp-server = "abaqus_mcp_bridge.server:main"
 abaqus-control-check = "abaqus_mcp_bridge.cli:check_main"
+abaqus-control-install-plugin = "abaqus_mcp_bridge.cli:install_plugin_main"
+abaqus-control-doctor = "abaqus_mcp_bridge.cli:doctor_main"
+
+[project.urls]
+Homepage = "https://github.com/Whfkl/Abaqus-Control-MCP"
+Issues = "https://github.com/Whfkl/Abaqus-Control-MCP/issues"
+Source = "https://github.com/Whfkl/Abaqus-Control-MCP"
 
 [build-system]
 requires = ["hatchling"]
