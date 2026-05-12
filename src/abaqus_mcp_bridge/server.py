@@ -23,7 +23,19 @@ DEFAULT_HOST = os.environ.get("ABAQUS_MCP_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("ABAQUS_MCP_PORT", "48152"))
 DEFAULT_TIMEOUT = float(os.environ.get("ABAQUS_MCP_TIMEOUT", "60"))
 
-mcp = FastMCP("abaqus-control-mcp")
+INSTRUCTIONS = """You are controlling a live Abaqus/CAE session via MCP tools.
+
+MANDATORY RULES:
+1. INTENT DECLARATION: Before every abaqus_execute_python call, output a sentence: "I will now [action] to [purpose]."
+2. CHUNKING: Never write the full script at once. Execute in stages: (A) Geometry & Mesh → (B) Materials & Sections → (C) Assembly & Steps → (D) Loads & BCs. Pause after each, summarize, and ask the user: "Should I proceed to the next stage?"
+3. NO GUESSING: If unsure about any Abaqus API method, attribute, or key — call abaqus_inspect_object first. Never guess.
+4. UI HANDOFF: Do NOT write complex findAt coordinate logic for selecting faces/edges/vertices. Stop and ask the user to create the Set/Surface in the Abaqus GUI, then continue with the exact name.
+5. ERROR RECOVERY: When abaqus_execute_python returns "ok": False, read core_error and action_suggestion, call abaqus_inspect_object if suggested, rewrite based on facts — no apology, no filler.
+6. WORKING DIRECTORY: Before building a new model, ask the user if they want to change the working directory.
+
+CODE CONVENTIONS: Use `from abaqus import *` and `from abaqusConstants import *`. Set `result = {...}` to return data. Always wrap in try/except."""
+
+mcp = FastMCP("abaqus-control-mcp", instructions=INSTRUCTIONS)
 
 
 def _client(timeout: float | None = None) -> AbaqusBridgeClient:
@@ -153,24 +165,25 @@ async def abaqus_execute_python(code: str, timeout: float | None = None) -> dict
     the code is executed and the value of a variable named `result`, if set, is
     returned. Stdout, stderr, and traceback data are included in the response.
     Executes Python code in the active Abaqus/CAE kernel.
-    
-    ⚠️ CRITICAL RULES FOR AI AGENT (YOU MUST OBEY):
-    
-    1. INTENT DECLARATION: Before invoking this tool, you MUST output a text message to the user explaining your intent (e.g., "I will now create the geometry...").
-    
-    2. CHUNKING (STOP AFTER EACH STAGE): 
-       NEVER write the entire modeling script at once. You must break the workflow into distinct stages:
-       (A) Geometry & Mesh
-       (B) Materials & Sections
-       (C) Assembly & Steps
-       (D) Loads & BCs
-       Execute ONLY the code for the current stage, then STOP. Ask the user: "Should I proceed to the next stage?" Do not proceed until user confirms.
-       
-    3. UI HANDOFF FOR COMPLEX SELECTIONS:
-       If you need to select complex geometric entities (faces/edges for Sets/Surfaces), DO NOT write complex `findAt` code. It will fail. Stop execution, and ask the user to manually create the Set/Surface in the Abaqus GUI.
-       
-    4. ZERO GUESSING ON ERRORS:
-       If this tool returns `"ok": False`, do NOT blindly rewrite and retry. You MUST use `abaqus_inspect_object` on the parent object to check valid attributes/keys before writing new code.
+
+    CRITICAL RULES (YOU MUST OBEY):
+
+    1. INTENT DECLARATION: Before invoking this tool, output a sentence: "I will now [action] to [purpose]."
+
+    2. CHUNKING: NEVER write the entire modeling script at once. Execute in stages:
+       (A) Geometry & Mesh → (B) Materials & Sections → (C) Assembly & Steps → (D) Loads & BCs.
+       After each stage, STOP. Ask the user: "Should I proceed to the next stage?"
+
+    3. NO GUESSING: If unsure about any API method, attribute, or key — call abaqus_inspect_object first.
+
+    4. UI HANDOFF: Do NOT write complex findAt coordinate logic for selecting faces/edges/vertices.
+       Stop and ask the user to create the Set/Surface in the Abaqus GUI.
+
+    5. ERROR RECOVERY: When this tool returns "ok": False, read core_error and action_suggestion,
+       call abaqus_inspect_object if suggested — no apology, no filler, just fix and retry.
+
+    6. CODE STYLE: Use `from abaqus import *` and `from abaqusConstants import *`.
+       Set `result = {...}` to return data. Always wrap in try/except.
     """
     if not code.strip():
         raise ValueError("code must not be empty")
@@ -180,6 +193,9 @@ async def abaqus_execute_python(code: str, timeout: float | None = None) -> dict
 @mcp.tool()
 async def abaqus_inspect_object(object_path: str, timeout: float | None = None) -> dict[str, Any]:
     """Inspect an Abaqus object path and return available keys or public attributes.
+
+    MANDATORY: You MUST call this tool whenever abaqus_execute_python returns "ok": False
+    with a KeyError or AttributeError. Do NOT guess valid keys/attributes — inspect first.
 
     Examples:
         - ``mdb.models['Model-1'].parts``
@@ -601,6 +617,17 @@ def abaqus_status() -> str:
         return _json.dumps({"connected": False, "detail": str(r)}, indent=2)
     except Exception as e:
         return _json.dumps({"connected": False, "error": str(e)}, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# MCP Resource - agent instructions
+# ---------------------------------------------------------------------------
+
+
+@mcp.resource("abaqus://agent-instructions")
+def abaqus_agent_instructions() -> str:
+    """Mandatory instructions for any AI agent controlling Abaqus via this MCP."""
+    return INSTRUCTIONS
 
 
 # ---------------------------------------------------------------------------
