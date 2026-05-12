@@ -6,7 +6,6 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/downloads/)
-[![Abaqus 2024](https://img.shields.io/badge/Abaqus-2024-brightgreen)](#)
 
 **Abaqus Control MCP** is a Model Context Protocol (MCP) bridge that lets you control a live Abaqus/CAE GUI session from Claude, Cursor, or any MCP-compatible AI client. Describe your analysis in natural language, and AI generates the Python code that runs instantly in the active Abaqus kernel—no background processes, no intermediate script files, no polling.
 
@@ -19,7 +18,7 @@ This is a **local, trusted automation tool** for engineers who want to integrate
 - 🔌 **Standard MCP Interface**: Works with Claude Desktop, Cursor, Codex, and any MCP client
 - ⚡ **Zero File I/O**: Results return directly; no need to save/load intermediate files
 - 🛡️ **Local-Only**: Listens on `127.0.0.1` by default—perfect for trusted workstations
-- 📊 **Full Python Access**: Access the complete Abaqus 2024 Python 3.10 environment + `mdb` and `session` objects
+- 📊 **Full Python Access**: Access the complete Abaqus Python 3.10 environment + `mdb` and `session` objects
 
 ## Architecture
 
@@ -132,8 +131,18 @@ Claude/Claude Code:    Describe your analysis task in natural language
 
 ### Prerequisites
 
-- **Abaqus 2024** (Windows)
+- **Abaqus/CAE** (Windows)
 - **Python 3.10+** (for the local environment, not Abaqus-side)
+
+### Version Migration
+
+If you are not using Abaqus 2024, the bridge usually does not need code changes. Update only the version-specific references you copied into your own environment:
+
+- `README.md` and `README_ZH.md`: replace the example Abaqus executable path in the connectivity check with your installed version's path.
+- Your local MCP client config or launch script, if you copied one and hardcoded an Abaqus executable path.
+- Any custom shortcut or wrapper script that starts Abaqus/CAE and points at `ABQcaeK.exe`.
+
+The packaged bridge code under `src/abaqus_mcp_bridge/` and the plugin installer are version-neutral in normal use.
 
 ### Installation
 
@@ -471,7 +480,7 @@ Contributions are welcome! Please:
 3. Commit with clear messages
 4. Open a pull request
 
-Please ensure all changes are tested on a clean Abaqus 2024 installation.
+Please ensure all changes are tested on a clean Abaqus installation.
 
 ## License
 
