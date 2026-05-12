@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__abaqus__abaqus_ping",
+      "mcp__abaqus__abaqus_inspect_object",
+      "mcp__abaqus__abaqus_get_model_info",
+      "mcp__abaqus__abaqus_list_jobs",
+      "mcp__abaqus__abaqus_get_odb_info",
+      "mcp__abaqus__abaqus_get_field_output",
+      "mcp__abaqus__abaqus_get_history_output"
+    ]
+  }
+}

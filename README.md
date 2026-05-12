@@ -134,9 +134,11 @@ Claude/Claude Code:    Describe your analysis task in natural language
 - **Abaqus/CAE** (Windows)
 - **Python 3.10+** (for the local environment, not Abaqus-side)
 
+**Support baseline:** Abaqus 2024 is the primary target for this repository. Other Abaqus versions can still be used, but they rely on the matching Abaqus-side plugin installation and any runtime-specific compatibility adjustments your version needs.
+
 ### Version Migration
 
-**⚠️ Important: The GUI plugin is version-dependent.** If you upgrade or downgrade Abaqus, reinstall the plugin:
+**⚠️ Important: the GUI plugin is version-dependent.** If you upgrade or downgrade Abaqus, reinstall the plugin:
 
 ```bash
 abaqus-control-install-plugin  # or re-run the PowerShell installer
@@ -144,13 +146,17 @@ abaqus-control-install-plugin  # or re-run the PowerShell installer
 
 The GUI plugin (`abaqus_mcp_gui_plugin.py`) directly imports `abaqusGui`, which changes between Abaqus versions.
 
-Update these version-specific references:
+If an AI tool auto-installs the MCP connection for you, it usually only registers the MCP server in the client config. It does not install or update the Abaqus-side GUI plugin inside Abaqus/CAE.
+
+When the Abaqus version differs, update these version-specific items:
 
 - `README.md` and `README_ZH.md`: replace the example Abaqus executable path in the connectivity check with your installed version's path.
 - Your local MCP client config or launch script, if you copied one and hardcoded an Abaqus executable path.
 - Any custom shortcut or wrapper script that starts Abaqus/CAE and points at `ABQcaeK.exe`.
+- `install_gui_plugin.ps1` or the `abaqus-control-install-plugin` command output, if you maintain a custom plugin target directory for a specific Abaqus installation.
+- `abaqus_v6.env` or other Abaqus startup hooks, if you auto-load the plugin from a version-specific environment file.
 
-The core MCP server code under `src/abaqus_mcp_bridge/` does not change when switching Abaqus versions—only the installed plugin needs updating.
+For Abaqus 2021 and older, keep a local compatibility patch set for `src/abaqus_mcp_bridge/gui_plugin.py` in your own fork or branch, then re-test the plugin after each Abaqus upgrade. The MCP client config and server process stay the same; the Abaqus-side plugin is what must match the installed Abaqus runtime.
 
 ### Installation
 
@@ -187,6 +193,7 @@ abaqus-control-install-plugin
 This installs the GUI plugin to `C:\Users\<YourUser>\abaqus_plugins\abaqus_mcp_gui_plugin.py` by default.
 Set `ABAQUS_MCP_PLUGIN_DIR` or pass `--target-dir` if your Abaqus plugin search path is different.
 After restart, Abaqus will show multiple MCP actions under the Abaqus-Control-MCP menu: start, status, open log, and stop.
+If you change Abaqus versions later, run the installer again so the plugin file in that Abaqus environment stays in sync.
 
 If you cloned the repo and want to use the PowerShell helper instead, run:
 

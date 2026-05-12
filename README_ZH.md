@@ -133,6 +133,8 @@ Claude/Claude Code:  用自然语言描述分析任务             ← 生成代
 - **Abaqus/CAE** (Windows)
 - **Python 3.10+** (用于本地环境，不是 Abaqus 内)
 
+**支持基线：** 这个仓库以 Abaqus 2024 作为主要目标。其他 Abaqus 版本也可以用，但前提是安装与该版本匹配的 Abaqus 侧插件，并补齐该版本运行时需要的兼容修正。
+
 ### 版本迁移
 
 **⚠️ 重要：GUI 插件与 Abaqus 版本强相关。** 如果你升级或降级 Abaqus，必须重新安装插件：
@@ -143,13 +145,17 @@ abaqus-control-install-plugin  # 或重新运行 PowerShell 安装器
 
 GUI 插件（`abaqus_mcp_gui_plugin.py`）直接导入 `abaqusGui`，这在不同 Abaqus 版本间会变化。
 
-更新这些版本相关的引用：
+如果 AI 工具帮你自动装了 MCP，通常只是在客户端配置里注册了 MCP 服务，并不会把 Abaqus/CAE 里的 GUI 插件一起装好或更新。
+
+当 Abaqus 版本不同的时候，需要更新这些具体项目：
 
 - `README.md` 和 `README_ZH.md`：把连接检查示例里的 Abaqus 可执行文件路径替换成你本机安装版本对应的路径。
 - 你本地复制出来的 MCP 客户端配置或启动脚本，如果里面硬编码了 Abaqus 可执行文件路径。
 - 任何自定义的 Abaqus 快捷方式或包装脚本，只要它指向了某个固定版本目录下的 `ABQcaeK.exe`。
+- `install_gui_plugin.ps1` 或 `abaqus-control-install-plugin` 的安装结果输出，如果你为特定 Abaqus 安装维护了自定义插件目录。
+- `abaqus_v6.env` 或其他 Abaqus 启动钩子，如果你是通过版本相关的环境文件自动加载插件。
 
-`src/abaqus_mcp_bridge/` 下的核心 MCP 服务代码在切换 Abaqus 版本时不需要改动 —— 只需要重新安装插件。
+如果你要支持 Abaqus 2021 及更早版本，请在自己的分支里保留 `src/abaqus_mcp_bridge/gui_plugin.py` 的兼容补丁，并在每次切换 Abaqus 版本后重新测试插件。MCP 客户端配置和服务端进程通常保持不变，真正需要跟着 Abaqus 运行时变化的是 Abaqus 侧插件。
 
 ### 安装
 
@@ -186,6 +192,7 @@ abaqus-control-install-plugin
 默认会安装到 `C:\Users\<你的用户名>\abaqus_plugins\abaqus_mcp_gui_plugin.py`。
 如果你的 Abaqus 插件搜索路径不同，可以设置 `ABAQUS_MCP_PLUGIN_DIR`，或在命令中传入 `--target-dir`。
 重启后，Abaqus 的菜单里会出现一个独立的 Abaqus-Control-MCP 菜单，里面有启动、状态、打开日志和停止。
+如果你之后切换了 Abaqus 版本，请重新运行安装器，让该版本环境里的插件文件保持同步。
 
 如果你已经克隆了仓库，也可以继续使用 PowerShell 脚本：
 
