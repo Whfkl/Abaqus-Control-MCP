@@ -136,13 +136,21 @@ Claude/Claude Code:    Describe your analysis task in natural language
 
 ### Version Migration
 
-If you are not using Abaqus 2024, the bridge usually does not need code changes. Update only the version-specific references you copied into your own environment:
+**⚠️ Important: The GUI plugin is version-dependent.** If you upgrade or downgrade Abaqus, reinstall the plugin:
+
+```bash
+abaqus-control-install-plugin  # or re-run the PowerShell installer
+```
+
+The GUI plugin (`abaqus_mcp_gui_plugin.py`) directly imports `abaqusGui`, which changes between Abaqus versions.
+
+Update these version-specific references:
 
 - `README.md` and `README_ZH.md`: replace the example Abaqus executable path in the connectivity check with your installed version's path.
 - Your local MCP client config or launch script, if you copied one and hardcoded an Abaqus executable path.
 - Any custom shortcut or wrapper script that starts Abaqus/CAE and points at `ABQcaeK.exe`.
 
-The packaged bridge code under `src/abaqus_mcp_bridge/` and the plugin installer are version-neutral in normal use.
+The core MCP server code under `src/abaqus_mcp_bridge/` does not change when switching Abaqus versions—only the installed plugin needs updating.
 
 ### Installation
 

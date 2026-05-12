@@ -135,13 +135,21 @@ Claude/Claude Code:  用自然语言描述分析任务             ← 生成代
 
 ### 版本迁移
 
-如果你使用的不是 Abaqus 2024，通常不需要修改桥接代码本身，只需要更新你自己环境里那些写死版本路径的引用：
+**⚠️ 重要：GUI 插件与 Abaqus 版本强相关。** 如果你升级或降级 Abaqus，必须重新安装插件：
+
+```bash
+abaqus-control-install-plugin  # 或重新运行 PowerShell 安装器
+```
+
+GUI 插件（`abaqus_mcp_gui_plugin.py`）直接导入 `abaqusGui`，这在不同 Abaqus 版本间会变化。
+
+更新这些版本相关的引用：
 
 - `README.md` 和 `README_ZH.md`：把连接检查示例里的 Abaqus 可执行文件路径替换成你本机安装版本对应的路径。
 - 你本地复制出来的 MCP 客户端配置或启动脚本，如果里面硬编码了 Abaqus 可执行文件路径。
 - 任何自定义的 Abaqus 快捷方式或包装脚本，只要它指向了某个固定版本目录下的 `ABQcaeK.exe`。
 
-仓库里的 `src/abaqus_mcp_bridge/` 桥接代码和插件安装器通常都不需要因为 Abaqus 版本变化而改动。
+`src/abaqus_mcp_bridge/` 下的核心 MCP 服务代码在切换 Abaqus 版本时不需要改动 —— 只需要重新安装插件。
 
 ### 安装
 
