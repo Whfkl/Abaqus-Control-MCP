@@ -51,7 +51,7 @@ Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
 
 **4. 配置 MCP 客户端**
 
-Claude Code 用户创建 `~/.claude/.mcp.json`（全局）或 `<项目>/.mcp.json`（单项目）：
+Claude Code 用户创建 `~/.claude/mcp.json`（全局）或 `<项目>/.mcp.json`（单项目）：
 
 ```json
 {
@@ -148,7 +148,7 @@ print(result['return_value'])  # ['Model-1', ...]
 | `Module abaqusGui can only be used...` | 通过 **Plug-ins** 菜单启动，不要用 File → Run Script |
 | 连接超时 | 先在 Abaqus 内启动插件，**再**启动 MCP 服务 |
 | 模型未出现在 GUI 中 | 运行 `abaqus-control-check`，确认 `"thread": "MainThread"` |
-| Claude Code 看不到 MCP 工具 | `.mcp.json` 中用绝对路径，改完配置后重启 Claude Code |
+| Claude Code 看不到 MCP 工具 | 1. 确认配置文件路径为 `~/.claude/mcp.json`（不是 `.mcp.json`——那是项目级配置）。2. 如果 `~/.claude/` 下同时存在 `mcp.json` 和 `.mcp.json`，删除重复的 `.mcp.json`。3. 使用绝对路径。4. 改完配置后重启 Claude Code。也可改用 `uv run` 方式：`"command": "uv"`，`"args": ["run", "--directory", "<仓库路径>", "abaqus-control-mcp-server"]`。 |
 
 ## 安全
 

@@ -52,7 +52,7 @@ Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
 
 **4. Configure your MCP client**
 
-For Claude Code, create `~/.claude/.mcp.json` (global) or `<project>/.mcp.json` (per-project):
+For Claude Code, create `~/.claude/mcp.json` (global) or `<project>/.mcp.json` (per-project):
 
 ```json
 {
@@ -149,7 +149,7 @@ print(result['return_value'])  # ['Model-1', ...]
 | `Module abaqusGui can only be used in Abaqus/CAE GUI` | Use **Plug-ins** menu, not File → Run Script |
 | Connection timed out | Start the Abaqus plugin **before** the MCP server |
 | Model doesn't appear in GUI | Run `abaqus-control-check` — verify `"thread": "MainThread"` |
-| Claude Code doesn't see MCP tools | Use absolute path in `.mcp.json`, restart Claude Code after config change |
+| Claude Code doesn't see MCP tools | 1. Make sure the config is at `~/.claude/mcp.json` (not `.mcp.json` — that is for project-level only). 2. If both `mcp.json` and `.mcp.json` exist under `~/.claude/`, delete the duplicate `.mcp.json`. 3. Use absolute path in the config. 4. Restart Claude Code after any config change. Alternatively, use the `uv run` approach: set `"command": "uv"` with `"args": ["run", "--directory", "<repo-path>", "abaqus-control-mcp-server"]`. |
 
 ## Security
 
