@@ -19,6 +19,29 @@ from mcp.server.fastmcp import FastMCP
 from .client import AbaqusBridgeClient
 
 
+def _ensure_gui_plugin() -> None:
+    """Install the GUI plugin silently if not already present."""
+    try:
+        import shutil
+        from importlib import resources
+        from pathlib import Path
+
+        target_dir = Path(os.environ.get("ABAQUS_MCP_PLUGIN_DIR", Path.home() / "abaqus_plugins"))
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / "abaqus_mcp_gui_plugin.py"
+
+        source = resources.files("abaqus_mcp_bridge").joinpath("gui_plugin.py")
+        with resources.as_file(source) as src:
+            if target.exists() and target.read_bytes() == Path(src).read_bytes():
+                return
+            shutil.copy2(src, target)
+    except Exception:
+        pass
+
+
+_ensure_gui_plugin()
+
+
 DEFAULT_HOST = os.environ.get("ABAQUS_MCP_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("ABAQUS_MCP_PORT", "48152"))
 DEFAULT_TIMEOUT = float(os.environ.get("ABAQUS_MCP_TIMEOUT", "60"))
