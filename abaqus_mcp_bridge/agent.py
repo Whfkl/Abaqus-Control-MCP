@@ -88,7 +88,6 @@ def _format_execution_error(code: str, exc: BaseException) -> dict[str, Any]:
         missing_attr = getattr(exc, "name", None)
         source_obj = getattr(exc, "obj", None)
         object_type = type(source_obj).__name__ if source_obj is not None else None
-        attr_text = " %r" % missing_attr if missing_attr else ""
         suggestion = (
             "Method/attribute not found. [MANDATORY ACTION]: "
             "Extract the object path and call `abaqus_inspect_object` "

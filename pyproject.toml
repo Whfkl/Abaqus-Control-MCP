@@ -8,13 +8,11 @@ keywords = ["abaqus", "mcp", "automation", "cae", "finite-element", "claude", "a
 dependencies = [
     "mcp>=1.0.0",
     "anyio>=3.0.0",
-    "matplotlib>=3.10.9",
 ]
 
 [project.scripts]
 abaqus-control-mcp-server = "abaqus_mcp_bridge.server:main"
 abaqus-control-check = "abaqus_mcp_bridge.cli:check_main"
-abaqus-control-install-plugin = "abaqus_mcp_bridge.cli:install_plugin_main"
 abaqus-control-doctor = "abaqus_mcp_bridge.cli:doctor_main"
 
 [project.urls]
@@ -30,4 +28,4 @@ build-backend = "hatchling.build"
 package = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/abaqus_mcp_bridge"]
+packages = ["abaqus_mcp_bridge"]

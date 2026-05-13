@@ -2,7 +2,7 @@
 
 Provides high-level tools for model inspection, job management, ODB post-processing,
 and viewport capture - all implemented as Python code templates executed via the
-generic `abaqus_execute_python` tool. No changes to the socket protocol are needed.
+generic `run_python` tool. No changes to the socket protocol are needed.
 """
 
 from __future__ import annotations
@@ -26,11 +26,11 @@ DEFAULT_TIMEOUT = float(os.environ.get("ABAQUS_MCP_TIMEOUT", "60"))
 INSTRUCTIONS = """You are controlling a live Abaqus/CAE session via MCP tools.
 
 MANDATORY RULES:
-1. INTENT DECLARATION: Before every abaqus_execute_python call, output a sentence: "I will now [action] to [purpose]."
+1. INTENT DECLARATION: Before every run_python call, output a sentence: "I will now [action] to [purpose]."
 2. CHUNKING: Never write the full script at once. Execute in stages: (A) Geometry & Mesh → (B) Materials & Sections → (C) Assembly & Steps → (D) Loads & BCs. Pause after each, summarize, and ask the user: "Should I proceed to the next stage?"
-3. NO GUESSING: If unsure about any Abaqus API method, attribute, or key — call abaqus_inspect_object first. Never guess.
+3. NO GUESSING: If unsure about any Abaqus API method, attribute, or key — call inspect first. Never guess.
 4. UI HANDOFF: Do NOT write complex findAt coordinate logic for selecting faces/edges/vertices. Stop and ask the user to create the Set/Surface in the Abaqus GUI, then continue with the exact name.
-5. ERROR RECOVERY: When abaqus_execute_python returns "ok": False, read core_error and action_suggestion, call abaqus_inspect_object if suggested, rewrite based on facts — no apology, no filler.
+5. ERROR RECOVERY: When run_python returns "ok": False, read core_error and action_suggestion, call inspect if suggested, rewrite based on facts — no apology, no filler.
 6. WORKING DIRECTORY: Before building a new model, ask the user if they want to change the working directory.
 
 CODE CONVENTIONS: Use `from abaqus import *` and `from abaqusConstants import *`. Set `result = {...}` to return data. Always wrap in try/except."""
@@ -140,7 +140,7 @@ except Exception as exc:
 
 
 @mcp.tool()
-async def abaqus_ping(timeout: float | None = None) -> dict[str, Any]:
+async def ping(timeout: float | None = None) -> dict[str, Any]:
     """Check whether the Abaqus-side bridge agent is reachable."""
     return await _exec(
         "from abaqus import mdb, session\n"
@@ -158,32 +158,12 @@ async def abaqus_ping(timeout: float | None = None) -> dict[str, Any]:
 
 
 @mcp.tool()
-async def abaqus_execute_python(code: str, timeout: float | None = None) -> dict[str, Any]:
-    """Execute Python code inside the connected Abaqus Python process.
+async def run_python(code: str, timeout: float | None = None) -> dict[str, Any]:
+    """Execute Python code in the active Abaqus/CAE kernel.
 
-    If code is a single expression, the expression value is returned. Otherwise
-    the code is executed and the value of a variable named `result`, if set, is
-    returned. Stdout, stderr, and traceback data are included in the response.
-    Executes Python code in the active Abaqus/CAE kernel.
-
-    CRITICAL RULES (YOU MUST OBEY):
-
-    1. INTENT DECLARATION: Before invoking this tool, output a sentence: "I will now [action] to [purpose]."
-
-    2. CHUNKING: NEVER write the entire modeling script at once. Execute in stages:
-       (A) Geometry & Mesh → (B) Materials & Sections → (C) Assembly & Steps → (D) Loads & BCs.
-       After each stage, STOP. Ask the user: "Should I proceed to the next stage?"
-
-    3. NO GUESSING: If unsure about any API method, attribute, or key — call abaqus_inspect_object first.
-
-    4. UI HANDOFF: Do NOT write complex findAt coordinate logic for selecting faces/edges/vertices.
-       Stop and ask the user to create the Set/Surface in the Abaqus GUI.
-
-    5. ERROR RECOVERY: When this tool returns "ok": False, read core_error and action_suggestion,
-       call abaqus_inspect_object if suggested — no apology, no filler, just fix and retry.
-
-    6. CODE STYLE: Use `from abaqus import *` and `from abaqusConstants import *`.
-       Set `result = {...}` to return data. Always wrap in try/except.
+    Single-line expressions are evaluated and their value returned.
+    Multi-line code is executed; set a variable named ``result`` to return data.
+    Stdout, stderr, and any error details are included in the response.
     """
     if not code.strip():
         raise ValueError("code must not be empty")
@@ -191,11 +171,8 @@ async def abaqus_execute_python(code: str, timeout: float | None = None) -> dict
 
 
 @mcp.tool()
-async def abaqus_inspect_object(object_path: str, timeout: float | None = None) -> dict[str, Any]:
+async def inspect(object_path: str, timeout: float | None = None) -> dict[str, Any]:
     """Inspect an Abaqus object path and return available keys or public attributes.
-
-    MANDATORY: You MUST call this tool whenever abaqus_execute_python returns "ok": False
-    with a KeyError or AttributeError. Do NOT guess valid keys/attributes — inspect first.
 
     Examples:
         - ``mdb.models['Model-1'].parts``
@@ -208,7 +185,7 @@ async def abaqus_inspect_object(object_path: str, timeout: float | None = None) 
 
 
 @mcp.tool()
-async def abaqus_set_workdir(path: str, timeout: float | None = None) -> dict[str, Any]:
+async def set_workdir(path: str, timeout: float | None = None) -> dict[str, Any]:
     """Change the Abaqus working directory.
 
     Args:
@@ -243,7 +220,7 @@ except Exception as e:
 
 
 @mcp.tool()
-async def abaqus_get_model_info(timeout: float | None = None) -> dict[str, Any]:
+async def get_model_info(timeout: float | None = None) -> dict[str, Any]:
     """Get detailed information about all models in the current Abaqus session.
 
     Returns parts, materials, steps, loads, BCs, interactions, and assembly instances
@@ -275,7 +252,7 @@ result = info
 
 
 @mcp.tool()
-async def abaqus_list_jobs(timeout: float | None = None) -> dict[str, Any]:
+async def list_jobs(timeout: float | None = None) -> dict[str, Any]:
     """List all analysis jobs defined in the current Abaqus session with their status."""
     code = r"""
 from abaqus import mdb
@@ -297,7 +274,7 @@ result = {'jobs': jobs}
 
 
 @mcp.tool()
-async def abaqus_submit_job(job_name: str, timeout: float | None = None) -> dict[str, Any]:
+async def submit_job(job_name: str, timeout: float | None = None) -> dict[str, Any]:
     """Submit an Abaqus analysis job by name and wait for completion.
 
     The job must already be defined in `mdb.jobs`. The default timeout is 600 s.
@@ -334,7 +311,7 @@ else:
 
 
 @mcp.tool()
-async def abaqus_get_odb_info(odb_path: str, timeout: float | None = None) -> dict[str, Any]:
+async def get_odb_info(odb_path: str, timeout: float | None = None) -> dict[str, Any]:
     """Open an ODB file (read-only) and return its metadata.
 
     Returns steps (with frame count and total time), parts, instances, section points,
@@ -397,7 +374,7 @@ except Exception as e:
 
 
 @mcp.tool()
-async def abaqus_get_field_output(
+async def get_field_output(
     odb_path: str,
     step_name: str = "",
     frame_index: int = -1,
@@ -488,7 +465,7 @@ except Exception as e:
 
 
 @mcp.tool()
-async def abaqus_get_history_output(
+async def get_history_output(
     odb_path: str,
     step_name: str = "",
     history_output_name: str = "",
@@ -557,7 +534,7 @@ except Exception as e:
 
 
 @mcp.tool()
-async def abaqus_get_viewport_image(
+async def capture_viewport(
     viewport_name: str = "",
     image_format: str = "PNG",
     timeout: float | None = None,
@@ -638,26 +615,19 @@ def abaqus_agent_instructions() -> str:
 @mcp.prompt()
 def abaqus_scripting_strategy() -> str:
     """Best practices for writing Abaqus scripts that will be sent to an active
-    Abaqus/CAE session via the `abaqus_execute_python` tool."""
+    Abaqus/CAE session via the `run_python` tool."""
     return r"""**Engineering AI SOP for Abaqus:**
 
-1. **Check Working Directory First:** If building a new model from scratch, you MUST first ask the user whether they want to change the working directory. Use `abaqus_set_workdir` if they confirm. Files (CAE, ODB, etc.) will be saved to the current working directory.
-2. **No Blind Guessing:** If you are unsure of a method, attribute, or dictionary key in the Abaqus API, you MUST use `abaqus_inspect_object` first.
+1. **Check Working Directory First:** If building a new model from scratch, you MUST first ask the user whether they want to change the working directory. Use `set_workdir` if they confirm. Files (CAE, ODB, etc.) will be saved to the current working directory.
+2. **No Blind Guessing:** If you are unsure of a method, attribute, or dictionary key in the Abaqus API, you MUST use `inspect` first.
 3. **Step-by-Step Execution (Chunking):** Never write the entire script at once. Work in stages: (A) Geometry & Mesh -> (B) Materials & Sections -> (C) Assembly & Steps -> (D) Loads & BCs. After executing the code for one stage, STOP. Summarize what was created, and explicitly ask the user: "Should I proceed to the next stage?"
 4. **UI Handoff for Complex Geometry:** Do NOT attempt to write complex `findAt` coordinate logic to select faces, edges, or vertices for Sets/Surfaces. It is highly error-prone，unless absolutely necessary. Instead, STOP execution and instruct the user: "Please manually create a Set/Surface for the required boundary condition in the Abaqus GUI. Let me know the exact name of the Set/Surface once you are done, and I will continue with the script."
 
 ## Error Recovery Standard Operating Procedure (SOP)
-When `abaqus_execute_python` returns `"ok": False`, you MUST strictly follow this protocol:
+When `run_python` returns `"ok": False`, you MUST strictly follow this protocol:
 1. **Read the Error:** Analyze the `core_error` and the `action_suggestion` in the JSON response.
-2. **Execute the Suggestion:** Strictly follow the `action_suggestion`. If it mandates using `abaqus_inspect_object`, you MUST call that tool immediately to inspect the parent object or dictionary. DO NOT guess or blind-retry without inspecting first.
+2. **Execute the Suggestion:** Strictly follow the `action_suggestion`. If it mandates using `inspect`, you MUST call that tool immediately to inspect the parent object or dictionary. DO NOT guess or blind-retry without inspecting first.
 3. **Silent Recovery:** DO NOT apologize to the user. DO NOT output conversational filler like "I'm sorry, let me fix that." Just silently trigger the tool call to gather the right info, rewrite the code based on the factual inspection, and execute again.
-
-## Pre-Execution Intent Declaration (MANDATORY)
-Whenever you decide to use the `abaqus_execute_python` tool, you MUST NOT call the tool silently.
-Before invoking the tool, you MUST output a single, concise sentence to the user explaining your exact intent.
-* **Format:** "I will now [action] to [purpose]."
-* **Example:** "I will now execute Python code to inspect the properties of the MohrCoulombPlasticity object."
-* **Why:** This allows the user to understand your goal when the system's security confirmation dialog appears.
 """
 
 
@@ -666,13 +636,13 @@ def abaqus_workflow_create_and_run() -> str:
     """End-to-end workflow for creating a model, running an analysis, and post-processing results."""
     return r"""End-to-end Abaqus workflow via MCP:
 
-1. **Check session**: `abaqus_ping` - see existing models, check if clean.
-2. **Set working directory (if needed)**: If building a new model from scratch, ask the user whether to change the working directory. Use `abaqus_set_workdir(path="C:/your/project")` to set it. CAE/ODB files will be saved there.
+1. **Check session**: `ping` - see existing models, check if clean.
+2. **Set working directory (if needed)**: If building a new model from scratch, ask the user whether to change the working directory. Use `set_workdir(path="C:/your/project")` to set it. CAE/ODB files will be saved there.
 3. **Create model**: Write Python code with `from abaqus import mdb, session` and `from abaqusConstants import *`. Create parts, materials, sections, assembly, steps, loads, BCs, mesh, and job.
-4. **Submit job**: `abaqus_submit_job(job_name="YourJob")` - waits for completion.
-5. **Inspect ODB**: `abaqus_get_odb_info(odb_path="path/to/YourJob.odb")` to see available steps/frames/variables.
-6. **Extract results**: `abaqus_get_field_output(odb_path="...", output_variable="S")` for stress, `"U"` for displacement, etc.
-7. **Capture viewport**: `abaqus_get_viewport_image()` to see visual results.
+4. **Submit job**: `submit_job(job_name="YourJob")` - waits for completion.
+5. **Inspect ODB**: `get_odb_info(odb_path="path/to/YourJob.odb")` to see available steps/frames/variables.
+6. **Extract results**: `get_field_output(odb_path="...", output_variable="S")` for stress, `"U"` for displacement, etc.
+7. **Capture viewport**: `capture_viewport()` to see visual results.
 
 Always tell the user what you're doing at each step."""
 
@@ -682,15 +652,15 @@ def abaqus_odb_postprocessing() -> str:
     """Guide for extracting and visualizing results from Abaqus ODB files."""
     return r"""ODB post-processing via Abaqus MCP:
 
-1. **Open and inspect**: `abaqus_get_odb_info(odb_path)` to see steps, frames, instances, and available field/history variables.
-2. **Field output**: Use `abaqus_get_field_output(odb_path, step_name, frame_index, output_variable)`. Common variables:
+1. **Open and inspect**: `get_odb_info(odb_path)` to see steps, frames, instances, and available field/history variables.
+2. **Field output**: Use `get_field_output(odb_path, step_name, frame_index, output_variable)`. Common variables:
    - `"S"` - Stress tensor components / von Mises
    - `"U"` - Displacement (U1, U2, U3, magnitude)
    - `"E"` - Strain tensor
    - `"RF"` - Reaction force
    - `"MISESMAX"` - Max von Mises (if defined)
-3. **History output**: Use `abaqus_get_history_output(odb_path, step_name)` first to list available outputs, then call with a specific `history_output_name` to get time-history data.
-4. **Viewport**: Capture deformed shape / contour plots with `abaqus_get_viewport_image()` after setting the displayed object in Abaqus.
+3. **History output**: Use `get_history_output(odb_path, step_name)` first to list available outputs, then call with a specific `history_output_name` to get time-history data.
+4. **Viewport**: Capture deformed shape / contour plots with `capture_viewport()` after setting the displayed object in Abaqus.
 5. **Limitations**: The bridge returns summary statistics (min/max/mean) and samples - not full datasets. For detailed analysis, use Abaqus/Viewer locally."""
 
 

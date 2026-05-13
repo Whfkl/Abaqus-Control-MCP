@@ -12,7 +12,6 @@ from importlib import metadata
 from typing import Any
 
 from .client import AbaqusBridgeClient
-from .installer import default_plugin_dir, install_gui_plugin, plugin_resource_name
 
 
 def _print_json(label: str, payload: dict[str, Any]) -> None:
@@ -43,12 +42,7 @@ def _static_diagnostics() -> dict[str, Any]:
         "entrypoints": {
             "abaqus-control-mcp-server": _entrypoint_path("abaqus-control-mcp-server"),
             "abaqus-control-check": _entrypoint_path("abaqus-control-check"),
-            "abaqus-control-install-plugin": _entrypoint_path("abaqus-control-install-plugin"),
             "abaqus-control-doctor": _entrypoint_path("abaqus-control-doctor"),
-        },
-        "plugin": {
-            "resource": plugin_resource_name(),
-            "default_target_dir": str(default_plugin_dir()),
         },
     }
 
@@ -72,21 +66,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "--code",
         default="import sys\nresult = {'python': sys.version.split()[0], 'ok': True}",
         help="Python code to execute in the Abaqus-side agent.",
-    )
-
-    install_parser = subparsers.add_parser(
-        "install-plugin",
-        help="Install the Abaqus/CAE GUI plugin into the local plugin directory.",
-    )
-    install_parser.add_argument(
-        "--target-dir",
-        default=None,
-        help="Target plugin directory. Defaults to ABAQUS_MCP_PLUGIN_DIR or ~/abaqus_plugins.",
-    )
-    install_parser.add_argument(
-        "--no-overwrite",
-        action="store_true",
-        help="Do not overwrite an existing plugin file if it differs.",
     )
 
     doctor_parser = subparsers.add_parser(
@@ -123,19 +102,6 @@ def _check_main(args: argparse.Namespace) -> None:
     _print_json("Execution", execution)
 
 
-def _install_plugin_main(args: argparse.Namespace) -> None:
-    result = install_gui_plugin(target_dir=args.target_dir, overwrite=not args.no_overwrite)
-    if result.get("skipped"):
-        print("Plugin already exists and overwrite was disabled.")
-    elif result.get("already_current"):
-        print("Plugin is already up to date.")
-    else:
-        print("Installed Abaqus GUI plugin.")
-    _print_json("Result", result)
-    print("Restart Abaqus/CAE, then activate:")
-    print("Plug-ins -> Abaqus-Control-MCP -> Start MCP GUI Agent")
-
-
 def _doctor_main(args: argparse.Namespace) -> None:
     diagnostics = _static_diagnostics()
     _print_json("Diagnostics", diagnostics)
@@ -158,8 +124,6 @@ def main() -> None:
 
     if command == "check":
         _check_main(args)
-    elif command == "install-plugin":
-        _install_plugin_main(args)
     elif command == "doctor":
         _doctor_main(args)
     else:
@@ -170,12 +134,6 @@ def check_main() -> None:
     parser = _build_parser()
     args = parser.parse_args(["check", *sys.argv[1:]])
     _check_main(args)
-
-
-def install_plugin_main() -> None:
-    parser = _build_parser()
-    args = parser.parse_args(["install-plugin", *sys.argv[1:]])
-    _install_plugin_main(args)
 
 
 def doctor_main() -> None:

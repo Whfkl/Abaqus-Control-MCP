@@ -127,131 +127,9 @@ Claude/Claude Code:    Describe your analysis task in natural language
 └─────────────────────────────────────┘
 ```
 
-## Installation
-
-### Prerequisites
-
-- **Abaqus/CAE** (Windows)
-- **Python 3.10+** (for the local environment, not Abaqus-side)
-
-**Support baseline:** Abaqus 2024 is the primary target for this repository. Other Abaqus versions can still be used, but they rely on the matching Abaqus-side plugin installation and any runtime-specific compatibility adjustments your version needs.
-
-### Version Migration
-
-**⚠️ Important: the GUI plugin is version-dependent.** If you upgrade or downgrade Abaqus, reinstall the plugin:
-
-```bash
-abaqus-control-install-plugin  # or re-run the PowerShell installer
-```
-
-The GUI plugin (`abaqus_mcp_gui_plugin.py`) directly imports `abaqusGui`, which changes between Abaqus versions.
-
-If an AI tool auto-installs the MCP connection for you, it usually only registers the MCP server in the client config. It does not install or update the Abaqus-side GUI plugin inside Abaqus/CAE.
-
-When the Abaqus version differs, update these version-specific items:
-
-- `README.md` and `README_ZH.md`: replace the example Abaqus executable path in the connectivity check with your installed version's path.
-- Your local MCP client config or launch script, if you copied one and hardcoded an Abaqus executable path.
-- Any custom shortcut or wrapper script that starts Abaqus/CAE and points at `ABQcaeK.exe`.
-- `install_gui_plugin.ps1` or the `abaqus-control-install-plugin` command output, if you maintain a custom plugin target directory for a specific Abaqus installation.
-- `abaqus_v6.env` or other Abaqus startup hooks, if you auto-load the plugin from a version-specific environment file.
-
-For Abaqus 2021 and older, keep a local compatibility patch set for `src/abaqus_mcp_bridge/gui_plugin.py` in your own fork or branch, then re-test the plugin after each Abaqus upgrade. The MCP client config and server process stay the same; the Abaqus-side plugin is what must match the installed Abaqus runtime.
-
-### Installation
-
-#### 1. Install the MCP package
-
-Use either `pip` or `uv`. The package install gives you the MCP server, the connectivity check, the plugin installer, and the support doctor command.
-
-```bash
-pip install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
-```
-
-If you prefer `uv`:
-
-```bash
-uv tool install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
-```
-
-For local development, clone the repo and install it in editable mode:
-
-```bash
-git clone https://github.com/Whfkl/Abaqus-Control-MCP.git
-cd Abaqus-Control-MCP
-pip install -e .
-```
-
-#### 2. Install the Abaqus/CAE GUI plugin
-
-The published package now includes a first-class installer:
-
-```bash
-abaqus-control-install-plugin
-```
-
-This installs the GUI plugin to `C:\Users\<YourUser>\abaqus_plugins\abaqus_mcp_gui_plugin.py` by default.
-Set `ABAQUS_MCP_PLUGIN_DIR` or pass `--target-dir` if your Abaqus plugin search path is different.
-After restart, Abaqus will show multiple MCP actions under the Abaqus-Control-MCP menu: start, status, open log, and stop.
-If you change Abaqus versions later, run the installer again so the plugin file in that Abaqus environment stays in sync.
-
-If you cloned the repo and want to use the PowerShell helper instead, run:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install_gui_plugin.ps1
-```
-
-#### 3. Restart Abaqus/CAE and verify connectivity
-
-Restart Abaqus/CAE, then activate the plugin from:
-
-```
-Plug-ins -> Abaqus-Control-MCP -> Start MCP GUI Agent
-```
-
-Then verify the bridge:
-
-```bash
-abaqus-control-doctor --verify-connection
-```
-
-or, if you only want the connectivity check:
-
-```bash
-abaqus-control-check
-```
-
-Expected output (actual values will vary):
-
-```
-Abaqus MCP agent is reachable.
-Ping:
-{
-  "python": "3.10.5 (main, Aug 12 2023) [MSC v.1934 64 bit (AMD64)]",
-  "executable": "D:\\SIMULIA\\EstProducts\\2024\\win_b64\\code\\bin\\ABQcaeK.exe",
-  "platform": "Windows-10-10.0.26200-SP0",
-  "pid": 17644,
-  "models": [
-    "Model-1"
-  ],
-  "viewports": [
-    "Viewport: 1"
-  ],
-  "guiProcess": {
-    "python": "3.10.5",
-    "platform": "Windows-10-10.0.26200-SP0",
-    "thread": "MainThread"
-  }
-}
-```
-
-> If you see `Abaqus MCP agent is reachable.` with a `"thread": "MainThread"` entry, the connection is working.
-
 ## Usage
 
-If you haven't installed yet, see [Installation](#installation) first.
-
-Once installed, refer to the [Quick Start](#quick-start) above — the daily workflow is just **2 steps**.
+Refer to the [Quick Start](#quick-start) above — the daily workflow is just **2 steps**.
 
 ### Configure your MCP Client
 
@@ -286,23 +164,23 @@ By default, Claude Code prompts for confirmation on every MCP tool call. You can
 {
   "permissions": {
     "allow": [
-      "mcp__abaqus__abaqus_ping",
-      "mcp__abaqus__abaqus_inspect_object",
-      "mcp__abaqus__abaqus_get_model_info",
-      "mcp__abaqus__abaqus_list_jobs",
-      "mcp__abaqus__abaqus_get_odb_info",
-      "mcp__abaqus__abaqus_get_field_output",
-      "mcp__abaqus__abaqus_get_history_output"
+      "mcp__abaqus__ping",
+      "mcp__abaqus__inspect",
+      "mcp__abaqus__get_model_info",
+      "mcp__abaqus__list_jobs",
+      "mcp__abaqus__get_odb_info",
+      "mcp__abaqus__get_field_output",
+      "mcp__abaqus__get_history_output"
     ]
   }
 }
 ```
 
 > The following tools are **not** auto-approved (still require manual confirmation):
-> - `abaqus_execute_python` — can execute arbitrary code in Abaqus
-> - `abaqus_submit_job` — submits and runs analysis jobs
-> - `abaqus_get_viewport_image` — captures viewport screenshots
-> - `abaqus_set_workdir` — changes the Abaqus working directory
+> - `run_python` — can execute arbitrary code in Abaqus
+> - `submit_job` — submits and runs analysis jobs
+> - `capture_viewport` — captures viewport screenshots
+> - `set_workdir` — changes the Abaqus working directory
 
 > **Alternative with uv (no pip install)**: If you cloned the repo and use `uv`, set `"command": "uv"`, `"args": ["run", "abaqus-control-mcp-server"]`, and add `"cwd": "D:/path/to/Abaqus-Control-MCP"`.
 
@@ -342,9 +220,9 @@ In Claude Code, Claude Desktop, or Cursor:
 ```
 Me: Create a 1000mm x 100mm x 100mm steel cantilever beam model with 1000 elements.
 
-Claude (using abaqus_execute_python): 
+Claude (using run_python): 
   I'll create a cantilever beam model with fixed left end and tip load.
-  [generates Python code via abaqus_execute_python tool]
+  [generates Python code via run_python tool]
 
 Result: Model appears in your active Abaqus/CAE window instantly.
 ```
@@ -374,25 +252,25 @@ print(result['return_value'])  # {'model_name': 'Test'}
 
 | Tool | Description |
 |------|-------------|
-| `abaqus_ping` | Check connectivity + session state (models, viewports, PID) |
-| `abaqus_execute_python` | Execute arbitrary Python code in the Abaqus kernel |
-| `abaqus_get_model_info` | List parts, materials, steps, loads, BCs, interactions for all models |
-| `abaqus_list_jobs` | List all analysis jobs with status, type, model association |
-| `abaqus_submit_job` | Submit a job by name and wait for completion |
-| `abaqus_get_odb_info` | Open ODB read-only: steps, frames, field/history output variables |
-| `abaqus_get_field_output` | Extract field output data (S/E/U/RF) with min/max/mean stats |
-| `abaqus_get_history_output` | Extract time-history curves from ODB history outputs |
-| `abaqus_get_viewport_image` | Capture any viewport screenshot as base64 (PNG/JPEG/TIFF/SVG) |
-| `abaqus_set_workdir` | Change the Abaqus working directory |
+| `ping` | Check connectivity + session state (models, viewports, PID) |
+| `run_python` | Execute arbitrary Python code in the Abaqus kernel |
+| `get_model_info` | List parts, materials, steps, loads, BCs, interactions for all models |
+| `list_jobs` | List all analysis jobs with status, type, model association |
+| `submit_job` | Submit a job by name and wait for completion |
+| `get_odb_info` | Open ODB read-only: steps, frames, field/history output variables |
+| `get_field_output` | Extract field output data (S/E/U/RF) with min/max/mean stats |
+| `get_history_output` | Extract time-history curves from ODB history outputs |
+| `capture_viewport` | Capture any viewport screenshot as base64 (PNG/JPEG/TIFF/SVG) |
+| `set_workdir` | Change the Abaqus working directory |
 
-### `abaqus_ping`
+### `ping`
 
 Check if the Abaqus plugin is running and fetch current session state:
 - Python version and executable path
 - Current models and viewports
 - GUI thread name (confirms main-thread execution)
 
-### `abaqus_execute_python`
+### `run_python`
 
 Execute Python code in the active Abaqus/CAE kernel:
 
@@ -402,38 +280,38 @@ Execute Python code in the active Abaqus/CAE kernel:
 
 Response includes `mode`, `ok`, `return_value`, `stdout`, `stderr`.
 
-### `abaqus_get_model_info`
+### `get_model_info`
 
 Returns structured info for every model in the session: part names, material names, step names, loads, boundary conditions, interactions, assembly instances, and viewport details.
 
-### `abaqus_list_jobs`
+### `list_jobs`
 
 Returns all `mdb.jobs` entries with status, type, model name, description, CPU/memory settings.
 
-### `abaqus_submit_job`
+### `submit_job`
 
 Submit a job and block until completion. Default timeout is 600s. Returns final status and ODB path.
 
-### `abaqus_get_odb_info`
+### `get_odb_info`
 
 Opens an ODB file in read-only mode and returns: title, description, part/instance names, step list with frame count/times, and available field/history output variable names.
 
-### `abaqus_get_field_output`
+### `get_field_output`
 
 Extract field output from an ODB. Parameters:
 - `odb_path`, `step_name`, `frame_index`, `output_variable` (e.g. "S", "U", "E", "RF"), `instance_name`, `position`
 
 Returns summary statistics (min/max/mean) and a sample of element/node values.
 
-### `abaqus_get_history_output`
+### `get_history_output`
 
 Extract time-history curves. If `history_output_name` is empty, lists all available history outputs per region. Otherwise returns `[(time, value), ...]` data points.
 
-### `abaqus_get_viewport_image`
+### `capture_viewport`
 
 Capture a viewport screenshot as base64. Supported formats: `PNG`, `JPEG`, `TIFF`, `SVG`. Leave `viewport_name` empty for the current viewport.
 
-### `abaqus_set_workdir`
+### `set_workdir`
 
 Change the Abaqus working directory. Takes an absolute `path` and returns the previous and new working directory. Files (CAE, ODB, etc.) will be saved to the current working directory.
 
@@ -476,9 +354,7 @@ A: The plugin bridges the **first** GUI instance that activates it. If you need 
 
 | Issue | Solution |
 |-------|----------|
-| `abaqus-control-install-plugin` not found | Reinstall the package in the same Python environment, then run `abaqus-control-doctor` to confirm the scripts are on PATH |
 | `command not found: abaqus-control-mcp-server` | The package was installed into a different Python environment. Run `abaqus-control-doctor` or reinstall with the interpreter you use to launch the client |
-| Plugin installation fails or is unclear | Run `abaqus-control-install-plugin --target-dir <path>` and inspect the JSON result; if needed, rerun with `--no-overwrite` or `-Force` in the PowerShell helper |
 | No output from `abaqus-control-mcp-server` | **Normal** for stdio MCP Server — it doesn't print logs to stdout |
 | `JSON parse error` when pressing Enter | Don't send empty lines to the stdio server |
 | `Module abaqusGui can only be used in Abaqus/CAE GUI` | Use **Plug-ins -> Abaqus-Control-MCP -> Start MCP GUI Agent** menu, not File -> Run Script |
