@@ -1,10 +1,21 @@
 # Abaqus Control MCP
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/downloads/)
+
 [English](README.md) | 中文
 
-> 从 Claude、Cursor 等 MCP 客户端直接控制正在运行的 Abaqus/CAE 会话。用自然语言描述分析需求，代码直接在活跃的 Abaqus 内核中执行。
+> **像聊天一样控制 Abaqus。** 描述你要做的有限元分析——几何、材料、载荷——AI 直接在活跃的 Abaqus/CAE 里执行代码。不用写脚本，不用中转文件，不用开 `noGUI`。
 
-桥接监听 `127.0.0.1:48152`，所有通信都在本机。仅支持 Windows。
+**Abaqus Control MCP** 把 Claude、Cursor 等 MCP 兼容的 AI 工具接入运行中的 Abaqus/CAE。你跟 AI 对话，AI 操控 Abaqus，模型实时变化。
+
+### 为什么选它？
+
+- **实时 GUI 反馈** — 代码跑在你的活跃 Abaqus 窗口里，每建一个零件、每画一次网格都立即可见。
+- **零中间文件** — 结果通过 TCP 桥接直接返回，不产生散落一地的 `.py` 和 `.odb`。
+- **完整 API 访问** — `mdb`、`session` 和全部 Abaqus Python 模块全部可用，没有沙箱，没有限制。
+- **本地隔离** — 桥接只监听 `127.0.0.1:48152`，所有数据不出你的工作站。
+- **标准 MCP 协议** — 支持 Claude Code、Claude Desktop、Cursor 和所有 MCP 兼容客户端，丢个配置就能用。
 
 ## 安装配置
 
@@ -33,7 +44,7 @@ abaqus-control-setup
 **3. 启动 Abaqus/CAE，激活插件**
 
 ```
-Plug-ins → Abaqus-Control-MCP → Start MCP GUI Agent
+Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
 ```
 
 **4. 启动 MCP 服务**

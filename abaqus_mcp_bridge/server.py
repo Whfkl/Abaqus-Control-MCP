@@ -32,7 +32,6 @@ MANDATORY RULES:
 4. UI HANDOFF: Do NOT write complex findAt coordinate logic for selecting faces/edges/vertices. Stop and ask the user to create the Set/Surface in the Abaqus GUI, then continue with the exact name.
 5. ERROR RECOVERY: When run_python returns "ok": False, read core_error and action_suggestion, call inspect if suggested, rewrite based on facts — no apology, no filler.
 6. WORKING DIRECTORY: Before building a new model, ask the user if they want to change the working directory.
-
 CODE CONVENTIONS: Use `from abaqus import *` and `from abaqusConstants import *`. Set `result = {...}` to return data. Always wrap in try/except."""
 
 mcp = FastMCP("abaqus-control-mcp", instructions=INSTRUCTIONS)

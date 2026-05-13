@@ -286,56 +286,6 @@ def _run_kernel_code(code, timeout):
     raise TimeoutError("timed out waiting for Abaqus kernel response")
 
 
-def _send_request(host, port, method, params=None, timeout=5.0):
-    request = {
-        "id": uuid.uuid4().hex,
-        "method": method,
-        "params": params or {},
-    }
-    request["params"].setdefault("timeout", timeout)
-    with socket.create_connection((host, port), timeout=timeout) as sock:
-        sock.settimeout(timeout)
-        _send(sock, request)
-        response = _recv(sock)
-    if response.get("id") != request["id"]:
-        raise RuntimeError("mismatched response id")
-    if not response.get("ok", False):
-        error = response.get("error", {})
-        if isinstance(error, dict):
-            raise RuntimeError(error.get("message", "agent returned an error"))
-        raise RuntimeError(str(error) or "agent returned an error")
-    return response.get("result", {})
-
-
-def _tail_log(limit=12):
-    if not os.path.exists(LOG_PATH):
-        return []
-    try:
-        with open(LOG_PATH, "r") as handle:
-            lines = handle.readlines()
-        return [line.rstrip("\n") for line in lines[-limit:]]
-    except Exception:
-        return []
-
-
-def _plugin_status():
-    status = {
-        "host": HOST,
-        "port": PORT,
-        "server_running": _SERVER is not None,
-        "server_bound": bool(_SERVER),
-        "log_path": LOG_PATH,
-        "log_exists": os.path.exists(LOG_PATH),
-        "gui_thread": threading.current_thread().name,
-    }
-    try:
-        status["agent_ping"] = _send_request(HOST, PORT, "ping", timeout=2.0)
-    except Exception as exc:
-        status["agent_ping_error"] = str(exc)
-    status["log_tail"] = _tail_log()
-    return status
-
-
 class McpGuiHandler(socketserver.BaseRequestHandler):
     def handle(self):
         request_id = None
@@ -456,22 +406,10 @@ def stop_gui_agent():
     return "Abaqus MCP GUI agent stopped."
 
 
-def open_log_file():
-    if not os.path.exists(LOG_PATH):
-        return "No plugin log exists yet: %s" % LOG_PATH
-    try:
-        os.startfile(LOG_PATH)
-        return "Opened plugin log: %s" % LOG_PATH
-    except Exception as exc:
-        return "Could not open log file %s: %s" % (LOG_PATH, exc)
-
-
 class McpGuiActionForm(AFXForm):
     ID_START = AFXForm.ID_LAST + 1
     ID_STOP = AFXForm.ID_LAST + 2
-    ID_STATUS = AFXForm.ID_LAST + 3
-    ID_LOG = AFXForm.ID_LAST + 4
-    ID_POLL = AFXForm.ID_LAST + 5
+    ID_POLL = AFXForm.ID_LAST + 3
 
     def __init__(self, owner, action):
         global _DISPATCHER
@@ -479,8 +417,6 @@ class McpGuiActionForm(AFXForm):
         self.action = action
         FXMAPFUNC(self, SEL_COMMAND, self.ID_START, McpGuiActionForm.onCmdStart)
         FXMAPFUNC(self, SEL_COMMAND, self.ID_STOP, McpGuiActionForm.onCmdStop)
-        FXMAPFUNC(self, SEL_COMMAND, self.ID_STATUS, McpGuiActionForm.onCmdStatus)
-        FXMAPFUNC(self, SEL_COMMAND, self.ID_LOG, McpGuiActionForm.onCmdLog)
         FXMAPFUNC(self, SEL_TIMEOUT, self.ID_POLL, McpGuiActionForm.onTimeout)
         _DISPATCHER = self
 
@@ -489,10 +425,6 @@ class McpGuiActionForm(AFXForm):
             self.onCmdStart(None, None, None)
         elif self.action == "stop":
             self.onCmdStop(None, None, None)
-        elif self.action == "status":
-            self.onCmdStatus(None, None, None)
-        elif self.action == "log":
-            self.onCmdLog(None, None, None)
         return None
 
     def _schedule_poll(self):
@@ -542,57 +474,20 @@ class McpGuiActionForm(AFXForm):
             showAFXErrorDialog(getAFXApp().getAFXMainWindow(), message)
         return 1
 
-    def onCmdStatus(self, sender, sel, ptr):
-        try:
-            status = _plugin_status()
-            _announce("Abaqus MCP GUI status: %s" % json.dumps(status, ensure_ascii=False))
-            _announce("Abaqus MCP GUI plugin log: %s" % LOG_PATH)
-        except Exception as exc:
-            message = "Abaqus MCP GUI status failed: %s" % exc
-            _log(message)
-            showAFXErrorDialog(getAFXApp().getAFXMainWindow(), message)
-        return 1
-
-    def onCmdLog(self, sender, sel, ptr):
-        try:
-            message = open_log_file()
-            _announce(message)
-        except Exception as exc:
-            message = "Abaqus MCP GUI log open failed: %s" % exc
-            _log(message)
-            showAFXErrorDialog(getAFXApp().getAFXMainWindow(), message)
-        return 1
-
 toolset = getAFXApp().getAFXMainWindow().getPluginToolset()
 toolset.registerGuiMenuButton(
     object=McpGuiActionForm(toolset, "start"),
-    buttonText="Abaqus-Control-MCP|Start MCP GUI Agent",
+    buttonText="Abaqus-Control-MCP|Start MCP Bridge",
     version="0.1.0",
     author="Codex",
     applicableModules=["Part", "Property", "Assembly", "Step", "Interaction", "Load", "Mesh", "Job", "Visualization"],
-    description="Start a GUI-side MCP socket bridge for the active Abaqus/CAE session.",
-)
-toolset.registerGuiMenuButton(
-    object=McpGuiActionForm(toolset, "status"),
-    buttonText="Abaqus-Control-MCP|MCP Status",
-    version="0.1.0",
-    author="Codex",
-    applicableModules=["Part", "Property", "Assembly", "Step", "Interaction", "Load", "Mesh", "Job", "Visualization"],
-    description="Show bridge status, log tail, and connectivity information.",
-)
-toolset.registerGuiMenuButton(
-    object=McpGuiActionForm(toolset, "log"),
-    buttonText="Abaqus-Control-MCP|Open MCP Log",
-    version="0.1.0",
-    author="Codex",
-    applicableModules=["Part", "Property", "Assembly", "Step", "Interaction", "Load", "Mesh", "Job", "Visualization"],
-    description="Open the GUI plugin log file.",
+    description="Start the TCP bridge for the active Abaqus/CAE session.",
 )
 toolset.registerGuiMenuButton(
     object=McpGuiActionForm(toolset, "stop"),
-    buttonText="Abaqus-Control-MCP|Stop MCP GUI Agent",
+    buttonText="Abaqus-Control-MCP|Stop MCP Bridge",
     version="0.1.0",
     author="Codex",
     applicableModules=["Part", "Property", "Assembly", "Step", "Interaction", "Load", "Mesh", "Job", "Visualization"],
-    description="Stop the GUI-side MCP socket bridge.",
+    description="Stop the TCP bridge.",
 )

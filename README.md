@@ -1,10 +1,22 @@
 # Abaqus Control MCP
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/downloads/)
+
 [中文](README_ZH.md) | English
 
-> Control a live Abaqus/CAE session from Claude, Cursor, or any MCP client. Describe the analysis in natural language — code executes directly in the active Abaqus kernel.
+> **Chat with your Abaqus.** Describe the FEM analysis you need — geometry, materials, loads — and AI executes it directly in your live Abaqus/CAE session. No scripting, no file juggling, no `noGUI` processes.
 
-The bridge listens on `127.0.0.1:48152`. All communication stays local. Windows only.
+**Abaqus Control MCP** connects Claude, Cursor, and other MCP-compatible AI tools to a running Abaqus/CAE instance. You talk to the AI. The AI talks to Abaqus. Your model updates in real time.
+
+### Why this?
+
+- **Live GUI feedback** — code runs in your active Abaqus window. Every part, step, and mesh change appears as it happens.
+- **No intermediate files** — results stream back through the TCP bridge. No `.py` scripts littering your working directory.
+- **Full API access** — `mdb`, `session`, and every Abaqus Python module are available. No sandbox, no restrictions.
+- **Local-only** — the bridge listens on `127.0.0.1:48152`. Nothing leaves your workstation.
+- **Standard MCP** — works with Claude Code, Claude Desktop, Cursor, and any MCP-compatible client. Drop in the config and go.
+
 
 ## Setup
 
@@ -33,7 +45,7 @@ This copies `gui_plugin.py` to `~/abaqus_plugins/`. Set `ABAQUS_MCP_PLUGIN_DIR` 
 **3. Start Abaqus/CAE, activate the plugin**
 
 ```
-Plug-ins → Abaqus-Control-MCP → Start MCP GUI Agent
+Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
 ```
 
 **4. Start the MCP server**

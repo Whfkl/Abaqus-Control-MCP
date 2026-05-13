@@ -137,7 +137,7 @@ def setup_main() -> None:
     print(f"Installed GUI plugin to: {target}")
     print()
     print("Restart Abaqus/CAE, then activate:")
-    print("Plug-ins -> Abaqus-Control-MCP -> Start MCP GUI Agent")
+    print("Plug-ins -> Abaqus-Control-MCP -> Start MCP Bridge")
 
 
 def main() -> None:
