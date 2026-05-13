@@ -52,21 +52,18 @@ Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
 
 **4. Configure your MCP client**
 
-For Claude Code, create `~/.claude/mcp.json` (global) or `<project>/.mcp.json` (per-project):
+`abaqus-control-setup` automatically registers the MCP server with Claude Code (runs `claude mcp add` under the hood). If you skipped that or need to re-register:
 
-```json
-{
-  "mcpServers": {
-    "abaqus": {
-      "command": "/absolute/path/to/abaqus-control-mcp-server",
-      "env": {
-        "ABAQUS_MCP_HOST": "127.0.0.1",
-        "ABAQUS_MCP_PORT": "48152",
-        "ABAQUS_MCP_TIMEOUT": "120"
-      }
-    }
-  }
-}
+```bash
+# Global (all projects)
+claude mcp add -s user -e ABAQUS_MCP_HOST=127.0.0.1 \
+  -e ABAQUS_MCP_PORT=48152 -e ABAQUS_MCP_TIMEOUT=120 \
+  abaqus /absolute/path/to/abaqus-control-mcp-server
+
+# Current project only
+claude mcp add -s local -e ABAQUS_MCP_HOST=127.0.0.1 \
+  -e ABAQUS_MCP_PORT=48152 -e ABAQUS_MCP_TIMEOUT=120 \
+  abaqus /absolute/path/to/abaqus-control-mcp-server
 ```
 
 > Use the absolute path to the executable — Claude Code's subprocess may not have your shell PATH. Run `which abaqus-control-mcp-server` (or `where` on Windows) to find it.
@@ -90,6 +87,8 @@ To reduce permission prompts, whitelist read-only tools in `.claude/settings.jso
   }
 }
 ```
+
+For **Cursor** or other MCP clients, add the server config to their respective settings files. The MCP server uses standard stdio transport.
 
 **5. Verify**
 
@@ -149,7 +148,7 @@ print(result['return_value'])  # ['Model-1', ...]
 | `Module abaqusGui can only be used in Abaqus/CAE GUI` | Use **Plug-ins** menu, not File → Run Script |
 | Connection timed out | Start the Abaqus plugin **before** the MCP server |
 | Model doesn't appear in GUI | Run `abaqus-control-check` — verify `"thread": "MainThread"` |
-| Claude Code doesn't see MCP tools | 1. Make sure the config is at `~/.claude/mcp.json` (not `.mcp.json` — that is for project-level only). 2. If both `mcp.json` and `.mcp.json` exist under `~/.claude/`, delete the duplicate `.mcp.json`. 3. Use absolute path in the config. 4. Restart Claude Code after any config change. Alternatively, use the `uv run` approach: set `"command": "uv"` with `"args": ["run", "--directory", "<repo-path>", "abaqus-control-mcp-server"]`. |
+| Claude Code doesn't see MCP tools | 1. Run `claude mcp list` to check if `abaqus` is registered. 2. If not listed, run `claude mcp add -s user -e ABAQUS_MCP_HOST=127.0.0.1 -e ABAQUS_MCP_PORT=48152 -e ABAQUS_MCP_TIMEOUT=120 abaqus /absolute/path/to/abaqus-control-mcp-server`. 3. Restart Claude Code after any config change. |
 
 ## Security
 

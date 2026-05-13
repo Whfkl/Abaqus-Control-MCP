@@ -51,21 +51,18 @@ Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
 
 **4. 配置 MCP 客户端**
 
-Claude Code 用户创建 `~/.claude/mcp.json`（全局）或 `<项目>/.mcp.json`（单项目）：
+`abaqus-control-setup` 会自动注册 MCP 服务器到 Claude Code（底层执行 `claude mcp add`）。如需手动注册：
 
-```json
-{
-  "mcpServers": {
-    "abaqus": {
-      "command": "/absolute/path/to/abaqus-control-mcp-server",
-      "env": {
-        "ABAQUS_MCP_HOST": "127.0.0.1",
-        "ABAQUS_MCP_PORT": "48152",
-        "ABAQUS_MCP_TIMEOUT": "120"
-      }
-    }
-  }
-}
+```bash
+# 全局生效（所有项目）
+claude mcp add -s user -e ABAQUS_MCP_HOST=127.0.0.1 \
+  -e ABAQUS_MCP_PORT=48152 -e ABAQUS_MCP_TIMEOUT=120 \
+  abaqus /absolute/path/to/abaqus-control-mcp-server
+
+# 仅当前项目
+claude mcp add -s local -e ABAQUS_MCP_HOST=127.0.0.1 \
+  -e ABAQUS_MCP_PORT=48152 -e ABAQUS_MCP_TIMEOUT=120 \
+  abaqus /absolute/path/to/abaqus-control-mcp-server
 ```
 
 > 必须使用可执行文件的绝对路径——Claude Code 的子进程可能不在你的 shell PATH 中。用 `which abaqus-control-mcp-server`（Windows 用 `where`）查看路径。
@@ -89,6 +86,8 @@ Claude Code 会在会话启动时自动拉起 MCP 服务，无需手动启动。
   }
 }
 ```
+
+**Cursor** 等其他 MCP 客户端，请将服务器配置添加到各自的设置文件中。本 MCP 服务器使用标准 stdio 传输协议。
 
 **5. 验证**
 
@@ -148,7 +147,7 @@ print(result['return_value'])  # ['Model-1', ...]
 | `Module abaqusGui can only be used...` | 通过 **Plug-ins** 菜单启动，不要用 File → Run Script |
 | 连接超时 | 先在 Abaqus 内启动插件，**再**启动 MCP 服务 |
 | 模型未出现在 GUI 中 | 运行 `abaqus-control-check`，确认 `"thread": "MainThread"` |
-| Claude Code 看不到 MCP 工具 | 1. 确认配置文件路径为 `~/.claude/mcp.json`（不是 `.mcp.json`——那是项目级配置）。2. 如果 `~/.claude/` 下同时存在 `mcp.json` 和 `.mcp.json`，删除重复的 `.mcp.json`。3. 使用绝对路径。4. 改完配置后重启 Claude Code。也可改用 `uv run` 方式：`"command": "uv"`，`"args": ["run", "--directory", "<仓库路径>", "abaqus-control-mcp-server"]`。 |
+| Claude Code 看不到 MCP 工具 | 1. 运行 `claude mcp list` 检查 `abaqus` 是否已注册。2. 如果未列出，运行 `claude mcp add -s user -e ABAQUS_MCP_HOST=127.0.0.1 -e ABAQUS_MCP_PORT=48152 -e ABAQUS_MCP_TIMEOUT=120 abaqus /absolute/path/to/abaqus-control-mcp-server`。3. 改完配置后重启 Claude Code。 |
 
 ## 安全
 
