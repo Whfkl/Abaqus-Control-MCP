@@ -107,26 +107,101 @@ def _key_literal(node):
         return _key_literal(node.value)
     return None
 
-def _find_subscript_parent(source, missing_key):
+def _extract_tb_lineno(exc):
+    tb = exc.__traceback__
+    while tb is not None:
+        if tb.tb_frame.f_code.co_filename == "<abaqus-mcp>":
+            return tb.tb_lineno
+        tb = tb.tb_next
+    return None
+
+def _find_subscript_parent(source, missing_key, lineno=None):
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    candidates = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript) and _key_literal(node.slice) == missing_key:
+            src = _node_source(node.value)
+            if src is not None:
+                candidates.append((getattr(node, "lineno", 0), src))
+    if not candidates:
+        return None
+    if lineno is not None:
+        candidates.sort(key=lambda c: abs(c[0] - lineno))
+    return candidates[0][1]
+
+def _find_attribute_parent(source, missing_attr):
     try:
         tree = ast.parse(source)
     except SyntaxError:
         return None
     for node in ast.walk(tree):
-        if isinstance(node, ast.Subscript) and _key_literal(node.slice) == missing_key:
+        if isinstance(node, ast.Attribute) and node.attr == missing_attr:
             return _node_source(node.value)
     return None
+
+def _extract_func_name(exc):
+    import re
+    msg = str(exc)
+    m = re.search(r"([\w.]+)\(\)", msg)
+    if m:
+        return m.group(1)
+    m = re.search(r"'([\w.]+)'", msg)
+    if m:
+        return m.group(1)
+    return None
+
+def _build_search_queries(exc, source, abaqus_version=""):
+    import re as _re
+    queries = []
+    base = "Abaqus Python API"
+    if isinstance(exc, AttributeError):
+        attr = getattr(exc, "name", "") or ""
+        obj_type = type(getattr(exc, "obj", "")).__name__
+        if attr:
+            queries.append("%s %s %s method" % (base, obj_type, attr))
+            queries.append("abaqus %s python scripting %s" % (obj_type, attr))
+    elif isinstance(exc, KeyError):
+        key = exc.args[0] if exc.args else ""
+        queries.append("%s key name %s" % (base, key))
+        queries.append("abaqus dictionary key naming convention")
+    elif isinstance(exc, NameError):
+        name = getattr(exc, "name", "") or ""
+        if name:
+            queries.append("%s %s import" % (base, name))
+            queries.append("abaqus python %s undefined" % name)
+    elif isinstance(exc, TypeError):
+        func = _extract_func_name(exc)
+        if func:
+            queries.append("%s %s signature parameters" % (base, func))
+            queries.append("abaqus %s arguments" % func)
+    queries.append("%s scripting guide" % base)
+    if abaqus_version:
+        queries = [q + " " + abaqus_version for q in queries]
+    return queries
+
+def _get_abaqus_version():
+    try:
+        ver = getattr(session, "version", None)
+        if ver:
+            return "Abaqus " + str(ver)
+    except Exception:
+        pass
+    return ""
 
 def _format_execution_error(source, exc):
     tb_str = traceback.format_exc()
     tb_lines = [l for l in tb_str.strip().splitlines() if l.strip()]
     core_error = tb_lines[-1] if tb_lines else str(exc)
     error_type = "%s.%s" % (type(exc).__module__, type(exc).__name__)
-    recovery = {}
+    abaqus_version = _get_abaqus_version()
+    lineno = _extract_tb_lineno(exc)
 
     if isinstance(exc, KeyError):
         missing_key = exc.args[0] if exc.args else None
-        parent_path = _find_subscript_parent(source, missing_key)
+        parent_path = _find_subscript_parent(source, missing_key, lineno)
         inspect_target = parent_path or "<parent object>"
         suggestion = (
             "Dictionary key not found. [MANDATORY ACTION]: "
@@ -142,27 +217,51 @@ def _format_execution_error(source, exc):
         missing_attr = getattr(exc, "name", None)
         source_obj = getattr(exc, "obj", None)
         object_type = type(source_obj).__name__ if source_obj is not None else None
-        suggestion = (
-            "Method/attribute not found. [MANDATORY ACTION]: "
-            "Extract the object path and call `abaqus_inspect_object` "
-            "to check valid methods and attributes."
-        )
+        parent_path = _find_attribute_parent(source, missing_attr) if missing_attr else None
+        if parent_path:
+            suggestion = (
+                "Method/attribute '%s' not found. [MANDATORY ACTION]: "
+                "Call `abaqus_inspect_object` on %s to check valid methods and attributes."
+            ) % (missing_attr, parent_path)
+        else:
+            suggestion = (
+                "Method/attribute '%s' not found. [MANDATORY ACTION]: "
+                "Extract the object path and call `abaqus_inspect_object` "
+                "to check valid methods and attributes."
+            ) % (missing_attr or "<unknown>")
         recovery = {
             "missing_attribute": missing_attr,
             "object_type": object_type,
+            "inspect_object_path": parent_path,
             "suggested_tool": "abaqus_inspect_object",
         }
     elif isinstance(exc, NameError):
+        missing_name = getattr(exc, "name", None)
         suggestion = (
-            "Variable undefined. Check imports "
+            "Variable '%s' undefined. Check imports "
             "(e.g., `from abaqus import *` or `from abaqusConstants import *`)."
-        )
-        recovery = {"suggested_fix": "Add missing import statement."}
+        ) % (missing_name or "<unknown>")
+        recovery = {
+            "missing_variable": missing_name,
+            "suggested_fix": "Add missing import or define the variable.",
+            "suggested_tool": "abaqus_inspect_object",
+        }
     elif isinstance(exc, TypeError):
-        suggestion = (
-            "Invalid parameter type. Review standard Abaqus API arguments."
-        )
-        recovery = {"suggested_fix": "Check argument types against the Abaqus Python API reference."}
+        func_name = _extract_func_name(exc)
+        if func_name:
+            suggestion = (
+                "Invalid arguments for '%s'. Review its parameter types "
+                "in the Abaqus Python API."
+            ) % func_name
+        else:
+            suggestion = (
+                "Invalid parameter type. Review standard Abaqus API arguments."
+            )
+        recovery = {
+            "function": func_name,
+            "suggested_fix": "Check argument types against the Abaqus Python API reference.",
+            "suggested_tool": "abaqus_inspect_object",
+        }
     elif isinstance(exc, RuntimeError):
         suggestion = (
             "Underlying failure. Read the core_error carefully. "
@@ -177,11 +276,18 @@ def _format_execution_error(source, exc):
         )
         recovery = {"suggested_tool": "abaqus_inspect_object"}
 
+    recovery["search_queries"] = _build_search_queries(exc, source, abaqus_version)
+    recovery["search_hint"] = (
+        "If inspection alone is insufficient, search the web for the queries above "
+        "to find the correct Abaqus API usage, method signatures, or naming conventions."
+    )
+
     return {
         "ok": False,
         "core_error": core_error,
         "action_suggestion": suggestion,
         "full_traceback": tb_str,
+        "submitted_code": source[:2000],
         "error": core_error,
         "error_type": error_type,
         "recovery": recovery,
@@ -358,6 +464,8 @@ def _handle_on_gui_thread(item):
             "from abaqus import mdb, session\n"
             "result = {'python': sys.version, 'executable': sys.executable, "
             "'platform': platform.platform(), 'pid': os.getpid(), "
+            "'cpu_count': os.cpu_count(), "
+            "'abaqus_version': getattr(session, 'version', None), "
             "'models': list(mdb.models.keys()), "
             "'viewports': list(session.viewports.keys())}"
         )

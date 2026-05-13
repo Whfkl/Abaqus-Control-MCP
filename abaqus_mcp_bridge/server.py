@@ -54,8 +54,9 @@ MANDATORY RULES:
 3. NO GUESSING: If unsure about any Abaqus API method, attribute, or key — call inspect first. Never guess.
 4. UI HANDOFF: Do NOT write complex findAt coordinate logic for selecting faces/edges/vertices. Stop and ask the user to create the Set/Surface in the Abaqus GUI, then continue with the exact name.
 5. ERROR RECOVERY: When run_python returns "ok": False, read core_error and action_suggestion, call inspect if suggested, rewrite based on facts — no apology, no filler.
-6. WORKING DIRECTORY: Before building a new model, ask the user if they want to change the working directory.
-7. JOB SUBMISSION: Before calling submit_job, call ping to get cpu_count. Tell the user how many cores are available and ask how many they want to use — do NOT assume all cores. Also ask about num_gpus. Do not submit without num_cpus set.
+6. WEB-ASSISTED RECOVERY: If the `search_queries` field is present in the recovery metadata and inspection alone is insufficient, use web search with those queries (include the Abaqus version) to find the correct API usage, method signatures, or naming conventions. Combine documentation findings with local inspection results.
+7. WORKING DIRECTORY: Before building a new model, ask the user if they want to change the working directory.
+8. JOB SUBMISSION: Before calling submit_job, call ping to get cpu_count. Tell the user how many cores are available and ask how many they want to use — do NOT assume all cores. Also ask about num_gpus. Do not submit without num_cpus set.
 CODE CONVENTIONS: Use `from abaqus import *` and `from abaqusConstants import *`. Set `result = {...}` to return data. Always wrap in try/except."""
 
 mcp = FastMCP("abaqus-control-mcp", instructions=INSTRUCTIONS)
@@ -110,12 +111,14 @@ async def _exec(code: str, timeout: float | None = None) -> dict[str, Any]:
     return await anyio.to_thread.run_sync(_client(timeout).execute, code)
 
 
-def _inspect_code(object_path: str) -> str:
+def _inspect_code(object_path: str, depth: int = 1) -> str:
     """Build Abaqus-side code for introspecting an object path."""
+    depth = max(1, min(depth, 3))
     return r"""
 from abaqus import mdb, session
 
 object_path = __OBJECT_PATH__
+max_depth = __DEPTH__
 
 def _jsonable_key(key):
     try:
@@ -125,25 +128,58 @@ def _jsonable_key(key):
     except Exception:
         return repr(key)
 
-try:
-    obj = eval(object_path, {"__builtins__": {}}, {"mdb": mdb, "session": session})
+def _safe_repr(val):
+    try:
+        r = repr(val)
+        return r[:200] if len(r) > 200 else r
+    except Exception:
+        return "<%s>" % type(val).__name__
+
+def _inspect_one(obj, current_depth):
     keys_method = getattr(obj, "keys", None)
     if callable(keys_method):
-        result = {
-            "ok": True,
-            "object_path": object_path,
+        info = {
             "kind": "mapping",
             "type": type(obj).__name__,
             "keys": [_jsonable_key(key) for key in keys_method()],
         }
+        if current_depth < max_depth:
+            children = {}
+            for key in list(keys_method())[:20]:
+                try:
+                    child = obj[key]
+                    children[_jsonable_key(key)] = _inspect_one(child, current_depth + 1)
+                except Exception as e:
+                    children[_jsonable_key(key)] = {"error": str(e)}
+            info["children"] = children
+        return info
     else:
-        result = {
-            "ok": True,
-            "object_path": object_path,
+        attrs = [name for name in dir(obj) if not name.startswith("_")]
+        info = {
             "kind": "object",
             "type": type(obj).__name__,
-            "attributes": [name for name in dir(obj) if not name.startswith("_")],
+            "attributes": attrs,
         }
+        if current_depth < max_depth:
+            children = {}
+            for attr in attrs[:20]:
+                try:
+                    child = getattr(obj, attr)
+                    if callable(child):
+                        children[attr] = {"kind": "callable", "type": type(child).__name__}
+                    else:
+                        children[attr] = _inspect_one(child, current_depth + 1)
+                except Exception as e:
+                    children[attr] = {"error": str(e)}
+            info["children"] = children
+        return info
+
+try:
+    obj = eval(object_path, {"__builtins__": {}}, {"mdb": mdb, "session": session})
+    info = _inspect_one(obj, 1)
+    info["ok"] = True
+    info["object_path"] = object_path
+    result = info
 except Exception as exc:
     result = {
         "ok": False,
@@ -154,7 +190,7 @@ except Exception as exc:
             str(exc),
         ),
     }
-""".replace("__OBJECT_PATH__", json.dumps(object_path))
+""".replace("__OBJECT_PATH__", json.dumps(object_path)).replace("__DEPTH__", str(depth))
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +214,7 @@ async def ping(timeout: float | None = None) -> dict[str, Any]:
         "  'platform': platform.platform(),\n"
         "  'pid': os.getpid(),\n"
         "  'cpu_count': os.cpu_count(),\n"
+        "  'abaqus_version': getattr(session, 'version', None),\n"
         "  'models': list(mdb.models.keys()),\n"
         "  'viewports': list(session.viewports.keys()),\n"
         "}",
@@ -199,8 +236,13 @@ async def run_python(code: str, timeout: float | None = None) -> dict[str, Any]:
 
 
 @mcp.tool()
-async def inspect(object_path: str, timeout: float | None = None) -> dict[str, Any]:
+async def inspect(object_path: str, depth: int = 1, timeout: float | None = None) -> dict[str, Any]:
     """Inspect an Abaqus object path and return available keys or public attributes.
+
+    Args:
+        object_path: Python expression evaluating to an Abaqus object.
+        depth: How many levels deep to inspect (1-3, default 1). depth=2 shows
+            child objects inline, reducing the number of follow-up inspect calls.
 
     Examples:
         - ``mdb.models['Model-1'].parts``
@@ -209,7 +251,7 @@ async def inspect(object_path: str, timeout: float | None = None) -> dict[str, A
     """
     if not object_path.strip():
         raise ValueError("object_path must not be empty")
-    return await _exec(_inspect_code(object_path.strip()), timeout)
+    return await _exec(_inspect_code(object_path.strip(), depth), timeout)
 
 
 @mcp.tool()
@@ -667,8 +709,9 @@ def abaqus_scripting_strategy() -> str:
 ## Error Recovery Standard Operating Procedure (SOP)
 When `run_python` returns `"ok": False`, you MUST strictly follow this protocol:
 1. **Read the Error:** Analyze the `core_error` and the `action_suggestion` in the JSON response.
-2. **Execute the Suggestion:** Strictly follow the `action_suggestion`. If it mandates using `inspect`, you MUST call that tool immediately to inspect the parent object or dictionary. DO NOT guess or blind-retry without inspecting first.
-3. **Silent Recovery:** DO NOT apologize to the user. DO NOT output conversational filler like "I'm sorry, let me fix that." Just silently trigger the tool call to gather the right info, rewrite the code based on the factual inspection, and execute again.
+2. **Execute the Suggestion:** Strictly follow the `action_suggestion`. If it mandates using `inspect`, you MUST call that tool immediately to inspect the parent object or dictionary. Use `depth=2` when you need to see nested structure. DO NOT guess or blind-retry without inspecting first.
+3. **Web-Assisted Recovery:** If the `search_queries` field is present in the `recovery` metadata and inspection alone does not clearly resolve the error, use web search with those queries (include the Abaqus version) to find the correct API usage, method signatures, or naming conventions. Combine documentation findings with local inspection results.
+4. **Silent Recovery:** DO NOT apologize to the user. DO NOT output conversational filler like "I'm sorry, let me fix that." Just silently trigger the tool call to gather the right info, rewrite the code based on the factual inspection, and execute again.
 """
 
 
