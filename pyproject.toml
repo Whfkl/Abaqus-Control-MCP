@@ -14,6 +14,7 @@ dependencies = [
 abaqus-control-mcp-server = "abaqus_mcp_bridge.server:main"
 abaqus-control-check = "abaqus_mcp_bridge.cli:check_main"
 abaqus-control-doctor = "abaqus_mcp_bridge.cli:doctor_main"
+abaqus-control-setup = "abaqus_mcp_bridge.cli:setup_main"
 
 [project.urls]
 Homepage = "https://github.com/Whfkl/Abaqus-Control-MCP"

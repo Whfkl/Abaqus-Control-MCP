@@ -1,4 +1,4 @@
-"""Small human-facing CLI helpers for bridge diagnostics and setup."""
+"""CLI entry points for diagnostics, connectivity check, and plugin setup."""
 
 from __future__ import annotations
 
@@ -8,7 +8,8 @@ import os
 import platform
 import shutil
 import sys
-from importlib import metadata
+from importlib import metadata, resources
+from pathlib import Path
 from typing import Any
 
 from .client import AbaqusBridgeClient
@@ -43,6 +44,7 @@ def _static_diagnostics() -> dict[str, Any]:
             "abaqus-control-mcp-server": _entrypoint_path("abaqus-control-mcp-server"),
             "abaqus-control-check": _entrypoint_path("abaqus-control-check"),
             "abaqus-control-doctor": _entrypoint_path("abaqus-control-doctor"),
+            "abaqus-control-setup": _entrypoint_path("abaqus-control-setup"),
         },
     }
 
@@ -115,6 +117,27 @@ def _doctor_main(args: argparse.Namespace) -> None:
         print(f"Connection check failed: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
     _print_json("Connection", ping)
+
+
+def setup_main() -> None:
+    """Copy the Abaqus GUI plugin into the local Abaqus plugin directory."""
+    target_dir = Path(os.environ.get("ABAQUS_MCP_PLUGIN_DIR", Path.home() / "abaqus_plugins"))
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / "abaqus_mcp_gui_plugin.py"
+
+    package_files = resources.files("abaqus_mcp_bridge")
+    source = package_files.joinpath("gui_plugin.py")
+    with resources.as_file(source) as src:
+        # If target exists and is identical, skip
+        if target.exists() and target.read_bytes() == Path(src).read_bytes():
+            print(f"Plugin already up to date: {target}")
+            return
+        shutil.copy2(src, target)
+
+    print(f"Installed GUI plugin to: {target}")
+    print()
+    print("Restart Abaqus/CAE, then activate:")
+    print("Plug-ins -> Abaqus-Control-MCP -> Start MCP GUI Agent")
 
 
 def main() -> None:
