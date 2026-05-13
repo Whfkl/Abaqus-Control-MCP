@@ -22,17 +22,19 @@
 
 **1. Install the package**
 
+`uv` (recommended):
+
+```bash
+uv tool install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
+```
+
+Or `pip`:
+
 ```bash
 pip install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
 ```
 
-Dependencies are declared in `pyproject.toml` — no `requirements.txt` needed. `uv` users can clone the repo and run directly:
-
-```bash
-git clone https://github.com/Whfkl/Abaqus-Control-MCP.git
-cd Abaqus-Control-MCP
-uv run abaqus-control-mcp-server
-```
+Dependencies are declared in `pyproject.toml` — no `requirements.txt` needed. Both methods install four CLI commands (`abaqus-control-mcp-server`, `abaqus-control-check`, `abaqus-control-doctor`, `abaqus-control-setup`).
 
 **2. Install the GUI plugin**
 
@@ -48,19 +50,15 @@ This copies `gui_plugin.py` to `~/abaqus_plugins/`. Set `ABAQUS_MCP_PLUGIN_DIR` 
 Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
 ```
 
-**4. Start the MCP server**
+**4. Configure your MCP client**
 
-```bash
-abaqus-control-mcp-server
-```
-
-**5. Configure your MCP client**
+For Claude Code, create `~/.claude/.mcp.json` (global) or `<project>/.mcp.json` (per-project):
 
 ```json
 {
   "mcpServers": {
     "abaqus": {
-      "command": "abaqus-control-mcp-server",
+      "command": "/absolute/path/to/abaqus-control-mcp-server",
       "env": {
         "ABAQUS_MCP_HOST": "127.0.0.1",
         "ABAQUS_MCP_PORT": "48152",
@@ -70,6 +68,10 @@ abaqus-control-mcp-server
   }
 }
 ```
+
+> Use the absolute path to the executable — Claude Code's subprocess may not have your shell PATH. Run `which abaqus-control-mcp-server` (or `where` on Windows) to find it.
+
+Claude Code starts the MCP server automatically when you open a session — no need to start it manually.
 
 To reduce permission prompts, whitelist read-only tools in `.claude/settings.json`:
 
@@ -89,7 +91,7 @@ To reduce permission prompts, whitelist read-only tools in `.claude/settings.jso
 }
 ```
 
-**6. Verify**
+**5. Verify**
 
 ```bash
 abaqus-control-check
@@ -147,6 +149,7 @@ print(result['return_value'])  # ['Model-1', ...]
 | `Module abaqusGui can only be used in Abaqus/CAE GUI` | Use **Plug-ins** menu, not File → Run Script |
 | Connection timed out | Start the Abaqus plugin **before** the MCP server |
 | Model doesn't appear in GUI | Run `abaqus-control-check` — verify `"thread": "MainThread"` |
+| Claude Code doesn't see MCP tools | Use absolute path in `.mcp.json`, restart Claude Code after config change |
 
 ## Security
 

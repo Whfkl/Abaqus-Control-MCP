@@ -21,17 +21,19 @@
 
 **1. 安装包**
 
+`uv`（推荐）：
+
+```bash
+uv tool install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
+```
+
+或 `pip`：
+
 ```bash
 pip install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
 ```
 
-依赖写在 `pyproject.toml` 中，不需要 `requirements.txt`。`uv` 用户可以克隆仓库直接运行：
-
-```bash
-git clone https://github.com/Whfkl/Abaqus-Control-MCP.git
-cd Abaqus-Control-MCP
-uv run abaqus-control-mcp-server
-```
+依赖写在 `pyproject.toml` 中，不需要 `requirements.txt`。两种方式都会安装四个 CLI 命令（`abaqus-control-mcp-server`、`abaqus-control-check`、`abaqus-control-doctor`、`abaqus-control-setup`）。
 
 **2. 安装 GUI 插件**
 
@@ -47,19 +49,15 @@ abaqus-control-setup
 Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
 ```
 
-**4. 启动 MCP 服务**
+**4. 配置 MCP 客户端**
 
-```bash
-abaqus-control-mcp-server
-```
-
-**5. 配置 MCP 客户端**
+Claude Code 用户创建 `~/.claude/.mcp.json`（全局）或 `<项目>/.mcp.json`（单项目）：
 
 ```json
 {
   "mcpServers": {
     "abaqus": {
-      "command": "abaqus-control-mcp-server",
+      "command": "/absolute/path/to/abaqus-control-mcp-server",
       "env": {
         "ABAQUS_MCP_HOST": "127.0.0.1",
         "ABAQUS_MCP_PORT": "48152",
@@ -69,6 +67,10 @@ abaqus-control-mcp-server
   }
 }
 ```
+
+> 必须使用可执行文件的绝对路径——Claude Code 的子进程可能不在你的 shell PATH 中。用 `which abaqus-control-mcp-server`（Windows 用 `where`）查看路径。
+
+Claude Code 会在会话启动时自动拉起 MCP 服务，无需手动启动。
 
 减少权限弹窗，在 `.claude/settings.json` 中白名单只读工具：
 
@@ -88,7 +90,7 @@ abaqus-control-mcp-server
 }
 ```
 
-**6. 验证**
+**5. 验证**
 
 ```bash
 abaqus-control-check
@@ -146,6 +148,7 @@ print(result['return_value'])  # ['Model-1', ...]
 | `Module abaqusGui can only be used...` | 通过 **Plug-ins** 菜单启动，不要用 File → Run Script |
 | 连接超时 | 先在 Abaqus 内启动插件，**再**启动 MCP 服务 |
 | 模型未出现在 GUI 中 | 运行 `abaqus-control-check`，确认 `"thread": "MainThread"` |
+| Claude Code 看不到 MCP 工具 | `.mcp.json` 中用绝对路径，改完配置后重启 Claude Code |
 
 ## 安全
 
