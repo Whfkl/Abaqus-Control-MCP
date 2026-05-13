@@ -32,6 +32,7 @@ MANDATORY RULES:
 4. UI HANDOFF: Do NOT write complex findAt coordinate logic for selecting faces/edges/vertices. Stop and ask the user to create the Set/Surface in the Abaqus GUI, then continue with the exact name.
 5. ERROR RECOVERY: When run_python returns "ok": False, read core_error and action_suggestion, call inspect if suggested, rewrite based on facts — no apology, no filler.
 6. WORKING DIRECTORY: Before building a new model, ask the user if they want to change the working directory.
+7. JOB SUBMISSION: Before calling submit_job, call ping to get cpu_count. Tell the user how many cores are available and ask how many they want to use — do NOT assume all cores. Also ask about num_gpus. Do not submit without num_cpus set.
 CODE CONVENTIONS: Use `from abaqus import *` and `from abaqusConstants import *`. Set `result = {...}` to return data. Always wrap in try/except."""
 
 mcp = FastMCP("abaqus-control-mcp", instructions=INSTRUCTIONS)
@@ -140,7 +141,11 @@ except Exception as exc:
 
 @mcp.tool()
 async def ping(timeout: float | None = None) -> dict[str, Any]:
-    """Check whether the Abaqus-side bridge agent is reachable."""
+    """Check whether the Abaqus-side bridge agent is reachable.
+
+    Returns session state including Python version, platform, PID, CPU count,
+    models, and viewports.
+    """
     return await _exec(
         "from abaqus import mdb, session\n"
         "import os, sys, platform\n"
@@ -149,6 +154,7 @@ async def ping(timeout: float | None = None) -> dict[str, Any]:
         "  'executable': sys.executable,\n"
         "  'platform': platform.platform(),\n"
         "  'pid': os.getpid(),\n"
+        "  'cpu_count': os.cpu_count(),\n"
         "  'models': list(mdb.models.keys()),\n"
         "  'viewports': list(session.viewports.keys()),\n"
         "}",
@@ -273,21 +279,32 @@ result = {'jobs': jobs}
 
 
 @mcp.tool()
-async def submit_job(job_name: str, timeout: float | None = None) -> dict[str, Any]:
+async def submit_job(job_name: str, num_cpus: int | None = None, num_gpus: int = 0, timeout: float | None = None) -> dict[str, Any]:
     """Submit an Abaqus analysis job by name and wait for completion.
 
-    The job must already be defined in `mdb.jobs`. The default timeout is 600 s.
-    Returns the final job status and output database path.
+    The job must already be defined in `mdb.jobs`. Default timeout is 600 s.
+
+    Args:
+        job_name: Name of a job already defined in mdb.jobs.
+        num_cpus: Number of CPUs. Leave unset or call ping first to detect.
+        num_gpus: Number of GPUs (default 0).
     """
+    cpus_val = num_cpus if num_cpus is not None else -1
     code = r"""
 from abaqus import mdb
-import time
 job_name = __JOB_NAME__
 if job_name not in mdb.jobs:
     result = {'success': False, 'error': 'Job "%s" not found' % job_name}
 else:
     job = mdb.jobs[job_name]
-    job.submit(consistencyChecking=False)
+    kwargs = {'consistencyChecking': False}
+    nc = __NUM_CPUS__
+    if nc > 0:
+        kwargs['numCpus'] = nc
+    ng = __NUM_GPUS__
+    if ng > 0:
+        kwargs['numGpus'] = ng
+    job.submit(**kwargs)
     job.waitForCompletion()
     status = str(getattr(job, 'status', 'UNKNOWN'))
     result = {
@@ -300,7 +317,9 @@ else:
         result['odb'] = str(job.name) + '.odb'
     except Exception:
         pass
-""".replace("__JOB_NAME__", json.dumps(job_name))
+""".replace("__JOB_NAME__", json.dumps(job_name)) \
+   .replace("__NUM_CPUS__", str(cpus_val)) \
+   .replace("__NUM_GPUS__", str(num_gpus))
     return await _exec(code, timeout or 600.0)
 
 
