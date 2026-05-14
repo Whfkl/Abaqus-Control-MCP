@@ -205,13 +205,13 @@ def _format_execution_error(source, exc):
         inspect_target = parent_path or "<parent object>"
         suggestion = (
             "Dictionary key not found. [MANDATORY ACTION]: "
-            "Extract the parent dictionary path and call `abaqus_inspect_object` "
+            "Extract the parent dictionary path and call `inspect` "
             "on %s to check valid keys."
         ) % inspect_target
         recovery = {
             "missing_key": _jsonable(missing_key),
             "inspect_object_path": parent_path,
-            "suggested_tool": "abaqus_inspect_object",
+            "suggested_tool": "inspect",
         }
     elif isinstance(exc, AttributeError):
         missing_attr = getattr(exc, "name", None)
@@ -221,19 +221,19 @@ def _format_execution_error(source, exc):
         if parent_path:
             suggestion = (
                 "Method/attribute '%s' not found. [MANDATORY ACTION]: "
-                "Call `abaqus_inspect_object` on %s to check valid methods and attributes."
+                "Call `inspect` on %s to check valid methods and attributes."
             ) % (missing_attr, parent_path)
         else:
             suggestion = (
                 "Method/attribute '%s' not found. [MANDATORY ACTION]: "
-                "Extract the object path and call `abaqus_inspect_object` "
+                "Extract the object path and call `inspect` "
                 "to check valid methods and attributes."
             ) % (missing_attr or "<unknown>")
         recovery = {
             "missing_attribute": missing_attr,
             "object_type": object_type,
             "inspect_object_path": parent_path,
-            "suggested_tool": "abaqus_inspect_object",
+            "suggested_tool": "inspect",
         }
     elif isinstance(exc, NameError):
         missing_name = getattr(exc, "name", None)
@@ -244,7 +244,7 @@ def _format_execution_error(source, exc):
         recovery = {
             "missing_variable": missing_name,
             "suggested_fix": "Add missing import or define the variable.",
-            "suggested_tool": "abaqus_inspect_object",
+            "suggested_tool": "inspect",
         }
     elif isinstance(exc, TypeError):
         func_name = _extract_func_name(exc)
@@ -260,21 +260,21 @@ def _format_execution_error(source, exc):
         recovery = {
             "function": func_name,
             "suggested_fix": "Check argument types against the Abaqus Python API reference.",
-            "suggested_tool": "abaqus_inspect_object",
+            "suggested_tool": "inspect",
         }
     elif isinstance(exc, RuntimeError):
         suggestion = (
             "Underlying failure. Read the core_error carefully. "
             "Verify geometry/mesh prerequisites. If unsure of object state, "
-            "use `abaqus_inspect_object`."
+            "use `inspect`."
         )
-        recovery = {"suggested_tool": "abaqus_inspect_object"}
+        recovery = {"suggested_tool": "inspect"}
     else:
         suggestion = (
             "Unexpected error. Read the full_traceback for details. "
-            "If unsure of object state, use `abaqus_inspect_object`."
+            "If unsure of object state, use `inspect`."
         )
-        recovery = {"suggested_tool": "abaqus_inspect_object"}
+        recovery = {"suggested_tool": "inspect"}
 
     recovery["search_queries"] = _build_search_queries(exc, source, abaqus_version)
     recovery["search_hint"] = (
