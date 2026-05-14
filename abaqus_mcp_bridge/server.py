@@ -362,21 +362,26 @@ if job_name not in mdb.jobs:
     result = {'success': False, 'error': 'Job "%s" not found' % job_name}
 else:
     job = mdb.jobs[job_name]
-    kwargs = {'consistencyChecking': False}
     nc = __NUM_CPUS__
-    if nc > 0:
-        kwargs['numCpus'] = nc
     ng = __NUM_GPUS__
+    sv_kwargs = {}
+    if nc > 0:
+        sv_kwargs['numCpus'] = nc
+        sv_kwargs['numDomains'] = nc
     if ng > 0:
-        kwargs['numGpus'] = ng
-    job.submit(**kwargs)
+        sv_kwargs['numGPUs'] = ng
+    if sv_kwargs:
+        job.setValues(**sv_kwargs)
+    job.submit(consistencyChecking=False)
     job.waitForCompletion()
     status = str(getattr(job, 'status', 'UNKNOWN'))
     result = {
         'success': True,
         'job': job_name,
         'status': status,
-        'model': str(getattr(mdb.jobs[job_name], 'model', '')),
+        'numCpus': getattr(job, 'numCpus', None),
+        'numGPUs': getattr(job, 'numGPUs', None),
+        'model': str(getattr(job, 'model', '')),
     }
     try:
         result['odb'] = str(job.name) + '.odb'
