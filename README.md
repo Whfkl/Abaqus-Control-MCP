@@ -9,7 +9,7 @@
 
 **Abaqus Control MCP** connects Claude, Cursor, and other MCP-compatible AI tools to a running Abaqus/CAE instance. You talk to the AI. The AI talks to Abaqus. Your model updates in real time.
 
-> **Older Abaqus versions** ship Python 2. If your Abaqus uses Python 2, use the [Python 2 compatible fork](https://github.com/hp283260133-bit/Abaqus-Control-MCP) instead.
+> **Older Abaqus versions** ship Python 2. If your Abaqus uses Python 2, use the [Python 2 compatible fork](https://github.com/hp283260133-bit/Abaqus-Control-MCP-abaqus2021) instead.
 
 ### Why this?
 
