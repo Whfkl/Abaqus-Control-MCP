@@ -208,12 +208,17 @@ async def ping(timeout: float | None = None) -> dict[str, Any]:
     return await _exec(
         "from abaqus import mdb, session\n"
         "import os, sys, platform\n"
+        "try:\n"
+        "  cpu_count = os.cpu_count()\n"
+        "except AttributeError:\n"
+        "  import multiprocessing\n"
+        "  cpu_count = multiprocessing.cpu_count()\n"
         "result = {\n"
         "  'python': sys.version,\n"
         "  'executable': sys.executable,\n"
         "  'platform': platform.platform(),\n"
         "  'pid': os.getpid(),\n"
-        "  'cpu_count': os.cpu_count(),\n"
+        "  'cpu_count': cpu_count,\n"
         "  'abaqus_version': getattr(session, 'version', None),\n"
         "  'models': list(mdb.models.keys()),\n"
         "  'viewports': list(session.viewports.keys()),\n"
@@ -362,14 +367,16 @@ if job_name not in mdb.jobs:
     result = {'success': False, 'error': 'Job "%s" not found' % job_name}
 else:
     job = mdb.jobs[job_name]
-    kwargs = {'consistencyChecking': False}
     nc = __NUM_CPUS__
     if nc > 0:
-        kwargs['numCpus'] = nc
+        job.setValues(numCpus=nc, numDomains=nc)
     ng = __NUM_GPUS__
     if ng > 0:
-        kwargs['numGpus'] = ng
-    job.submit(**kwargs)
+        try:
+            job.setValues(numGPUs=ng)
+        except TypeError:
+            pass
+    job.submit(consistencyChecking=False)
     job.waitForCompletion()
     status = str(getattr(job, 'status', 'UNKNOWN'))
     result = {
