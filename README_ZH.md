@@ -9,6 +9,8 @@
 
 **Abaqus Control MCP** 把 Claude、Cursor 等 MCP 兼容的 AI 工具接入运行中的 Abaqus/CAE。你跟 AI 对话，AI 操控 Abaqus，模型实时变化。
 
+> **旧版 Abaqus** 自带 Python 2。如果你的 Abaqus 使用 Python 2，请使用 [Python 2 兼容版本](https://github.com/hp283260133-bit/Abaqus-Control-MCP)。
+
 ### 为什么选它？
 
 - **实时 GUI 反馈** — 代码跑在你的活跃 Abaqus 窗口里，每建一个零件、每画一次网格都立即可见。
