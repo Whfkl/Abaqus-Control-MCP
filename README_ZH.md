@@ -79,11 +79,8 @@ Claude Code 会在会话启动时自动拉起 MCP 服务，无需手动启动。
     "allow": [
       "mcp__abaqus__ping",
       "mcp__abaqus__inspect",
-      "mcp__abaqus__get_model_info",
       "mcp__abaqus__list_jobs",
-      "mcp__abaqus__get_odb_info",
-      "mcp__abaqus__get_field_output",
-      "mcp__abaqus__get_history_output"
+      "mcp__abaqus__get_odb_info"
     ]
   }
 }
@@ -104,14 +101,12 @@ abaqus-control-check
 | `ping` | 检查连接 + 会话状态（模型、视口、PID） |
 | `run_python` | 在 Abaqus 内核中执行任意 Python 代码 |
 | `inspect` | 检查对象路径，返回键名或公开属性 |
-| `get_model_info` | 列出零件、材料、分析步、载荷、边界条件 |
 | `list_jobs` | 列出所有作业及状态、类型、模型 |
-| `submit_job` | 提交作业并等待完成 |
 | `get_odb_info` | 只读打开 ODB：分析步、帧、可用变量 |
-| `get_field_output` | 提取场输出（S/E/U/RF），返回最小值/最大值/平均值 |
-| `get_history_output` | 提取 ODB 历史输出时程曲线 |
 | `capture_viewport` | 截取视口图像为 base64（PNG/JPEG/TIFF/SVG） |
 | `set_workdir` | 修改 Abaqus 工作目录 |
+
+> 建模、提交作业、提取场/历史输出——全部通过 `run_python` 完成，拥有完整的 Abaqus API 访问权限，不受封装参数限制。
 
 ## MCP 提示
 
@@ -119,7 +114,7 @@ abaqus-control-check
 |------|------|
 | `abaqus_scripting_strategy` | Abaqus 脚本最佳实践 + 错误恢复 SOP |
 | `abaqus_workflow_create_and_run` | 端到端：建模 → 提交 → 后处理 |
-| `abaqus_odb_postprocessing` | ODB 结果提取与解读指南 |
+| `abaqus_odb_postprocessing` | 通过 `run_python` 提取和解读 ODB 结果 |
 
 ## 环境变量
 

@@ -1,8 +1,8 @@
 """MCP stdio server that forwards Python execution requests to Abaqus.
 
-Provides high-level tools for model inspection, job management, ODB post-processing,
-and viewport capture - all implemented as Python code templates executed via the
-generic `run_python` tool. No changes to the socket protocol are needed.
+Core tools: ping, run_python, inspect — plus viewport capture and ODB metadata
+as helpers that are awkward to replicate with raw Python. Everything else
+(model creation, job submission, field output extraction) goes through run_python.
 """
 
 from __future__ import annotations
@@ -56,7 +56,6 @@ MANDATORY RULES:
 5. ERROR RECOVERY: When run_python returns "ok": False, read core_error and action_suggestion, call inspect if suggested, rewrite based on facts — no apology, no filler.
 6. WEB-ASSISTED RECOVERY: If the `search_queries` field is present in the recovery metadata and inspection alone is insufficient, use web search with those queries (include the Abaqus version) to find the correct API usage, method signatures, or naming conventions. Combine documentation findings with local inspection results.
 7. WORKING DIRECTORY: Before building a new model, ask the user if they want to change the working directory.
-8. JOB SUBMISSION: Before calling submit_job, call ping to get cpu_count. Tell the user how many cores are available and ask how many they want to use — do NOT assume all cores. Also ask about num_gpus. Do not submit without num_cpus set.
 CODE CONVENTIONS: Use `from abaqus import *` and `from abaqusConstants import *`. Set `result = {...}` to return data. Always wrap in try/except."""
 
 mcp = FastMCP("abaqus-control-mcp", instructions=INSTRUCTIONS)
@@ -284,43 +283,6 @@ except Exception as e:
     return await _exec(code, timeout)
 
 
-# ---------------------------------------------------------------------------
-# Advanced query tools
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool()
-async def get_model_info(timeout: float | None = None) -> dict[str, Any]:
-    """Get detailed information about all models in the current Abaqus session.
-
-    Returns parts, materials, steps, loads, BCs, interactions, and assembly instances
-    for each model, plus current viewport info.
-    """
-    code = r"""
-from abaqus import mdb, session
-info = {'models': [], 'viewports': []}
-for model_name in mdb.models.keys():
-    model = mdb.models[model_name]
-    m = {'name': model_name, 'parts': list(model.parts.keys()),
-         'materials': list(model.materials.keys()),
-         'steps': list(model.steps.keys()),
-         'loads': list(model.loads.keys()) if hasattr(model, 'loads') else [],
-         'bcs': list(model.boundaryConditions.keys()) if hasattr(model, 'boundaryConditions') else [],
-         'interactions': list(model.interactions.keys()) if hasattr(model, 'interactions') else []}
-    if hasattr(model, 'rootAssembly') and model.rootAssembly is not None:
-        if hasattr(model.rootAssembly, 'instances'):
-            m['assembly'] = list(model.rootAssembly.instances.keys())
-    info['models'].append(m)
-if hasattr(session, 'viewports'):
-    info['viewports'] = list(session.viewports.keys())
-if hasattr(session, 'currentViewportName'):
-    info['currentViewport'] = session.currentViewportName
-info['workingDirectory'] = __import__('os').getcwd()
-result = info
-"""
-    return await _exec(code, timeout)
-
-
 @mcp.tool()
 async def list_jobs(timeout: float | None = None) -> dict[str, Any]:
     """List all analysis jobs defined in the current Abaqus session with their status."""
@@ -341,61 +303,6 @@ for name in mdb.jobs.keys():
 result = {'jobs': jobs}
 """
     return await _exec(code, timeout)
-
-
-@mcp.tool()
-async def submit_job(job_name: str, num_cpus: int | None = None, num_gpus: int = 0, timeout: float | None = None) -> dict[str, Any]:
-    """Submit an Abaqus analysis job by name and wait for completion.
-
-    The job must already be defined in `mdb.jobs`. Default timeout is 600 s.
-
-    Args:
-        job_name: Name of a job already defined in mdb.jobs.
-        num_cpus: Number of CPUs. Leave unset or call ping first to detect.
-        num_gpus: Number of GPUs (default 0).
-    """
-    cpus_val = num_cpus if num_cpus is not None else -1
-    code = r"""
-from abaqus import mdb
-job_name = __JOB_NAME__
-if job_name not in mdb.jobs:
-    result = {'success': False, 'error': 'Job "%s" not found' % job_name}
-else:
-    job = mdb.jobs[job_name]
-    nc = __NUM_CPUS__
-    ng = __NUM_GPUS__
-    sv_kwargs = {}
-    if nc > 0:
-        sv_kwargs['numCpus'] = nc
-        sv_kwargs['numDomains'] = nc
-    if ng > 0:
-        sv_kwargs['numGPUs'] = ng
-    if sv_kwargs:
-        job.setValues(**sv_kwargs)
-    job.submit(consistencyChecking=False)
-    job.waitForCompletion()
-    status = str(getattr(job, 'status', 'UNKNOWN'))
-    result = {
-        'success': True,
-        'job': job_name,
-        'status': status,
-        'numCpus': getattr(job, 'numCpus', None),
-        'numGPUs': getattr(job, 'numGPUs', None),
-        'model': str(getattr(job, 'model', '')),
-    }
-    try:
-        result['odb'] = str(job.name) + '.odb'
-    except Exception:
-        pass
-""".replace("__JOB_NAME__", json.dumps(job_name)) \
-   .replace("__NUM_CPUS__", str(cpus_val)) \
-   .replace("__NUM_GPUS__", str(num_gpus))
-    return await _exec(code, timeout or 600.0)
-
-
-# ---------------------------------------------------------------------------
-# ODB post-processing tools
-# ---------------------------------------------------------------------------
 
 
 @mcp.tool()
@@ -458,161 +365,6 @@ except Exception as e:
     import traceback
     result = {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
 """.replace("__ODB_PATH__", json.dumps(odb_path))
-    return await _exec(code, timeout or 60.0)
-
-
-@mcp.tool()
-async def get_field_output(
-    odb_path: str,
-    step_name: str = "",
-    frame_index: int = -1,
-    output_variable: str = "S",
-    instance_name: str = "",
-    position: str = "INTEGRATION_POINT",
-    timeout: float | None = None,
-) -> dict[str, Any]:
-    """Extract field output data from an ODB file.
-
-    Args:
-        odb_path: Full path to the .odb file.
-        step_name: Step name (empty = last step).
-        frame_index: Frame index (-1 = last frame).
-        output_variable: Field output variable name, e.g. "S" (stress), "E" (strain),
-            "U" (displacement), "RF" (reaction force), "MISESMAX" etc.
-        instance_name: Instance name (empty = first instance).
-        position: Output position - "INTEGRATION_POINT", "NODAL", "ELEMENT_NODAL", etc.
-    Returns summary statistics (min, max, mean) and a sample of values.
-    """
-    code = r"""
-from odbAccess import openOdb
-
-odb_path = __ODB_PATH__
-step_name = __STEP_NAME__
-frame_index = __FRAME_INDEX__
-output_var = __OV__
-inst_name = __INST_NAME__
-pos_name = __POS__
-
-result = {}
-try:
-    odb = openOdb(path=odb_path, readOnly=True)
-    # Determine step
-    if not step_name or step_name not in odb.steps.keys():
-        step_name = list(odb.steps.keys())[-1]
-    step = odb.steps[step_name]
-    # Determine frame
-    if frame_index < 0 or frame_index >= len(step.frames):
-        frame_index = len(step.frames) - 1
-    frame = step.frames[frame_index]
-    # Get field output
-    fo = frame.fieldOutputs[output_var]
-    # Filter by instance if needed
-    if inst_name:
-        values = [v for v in fo.values if v.instance.name == inst_name]
-    else:
-        values = list(fo.values)
-    # Compute stats
-    magnitudes = []
-    sample = []
-    for v in values:
-        try:
-            mag = (v.magnitude if hasattr(v, 'magnitude') and v.magnitude is not None
-                   else float(v.data))
-            magnitudes.append(mag)
-            if len(sample) < 10:
-                el_label = getattr(v, 'elementLabel', getattr(v, 'nodeLabel', 0))
-                sample.append({'label': el_label, 'magnitude': round(mag, 4),
-                               'data': str(v.data)[:80]})
-        except Exception:
-            pass
-    import statistics
-    result = {
-        'success': True,
-        'step': step_name,
-        'frame': frame_index,
-        'frameValue': frame.frameValue,
-        'variable': output_var,
-        'position': str(getattr(fo, 'position', '')),
-        'numValues': len(values),
-        'min': round(min(magnitudes), 4) if magnitudes else None,
-        'max': round(max(magnitudes), 4) if magnitudes else None,
-        'mean': round(statistics.mean(magnitudes), 4) if magnitudes else None,
-        'sample': sample,
-    }
-    odb.close()
-except Exception as e:
-    import traceback
-    result = {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
-""".replace("__ODB_PATH__", json.dumps(odb_path)) \
-      .replace("__STEP_NAME__", json.dumps(step_name)) \
-      .replace("__FRAME_INDEX__", str(int(frame_index))) \
-      .replace("__OV__", json.dumps(output_variable)) \
-      .replace("__INST_NAME__", json.dumps(instance_name)) \
-      .replace("__POS__", json.dumps(position))
-    return await _exec(code, timeout or 60.0)
-
-
-@mcp.tool()
-async def get_history_output(
-    odb_path: str,
-    step_name: str = "",
-    history_output_name: str = "",
-    timeout: float | None = None,
-) -> dict[str, Any]:
-    """Extract history output data from an ODB file.
-
-    Useful for time-history curves (displacement, stress at specific points,
-    reaction forces, energy, etc.). If history_output_name is empty, lists all
-    available history outputs.
-    """
-    code = r"""
-from odbAccess import openOdb
-
-odb_path = __ODB_PATH__
-step_name = __STEP__
-ho_name = __HO__
-
-result = {}
-try:
-    odb = openOdb(path=odb_path, readOnly=True)
-    if not step_name or step_name not in odb.steps.keys():
-        step_name = list(odb.steps.keys())[-1]
-    step = odb.steps[step_name]
-
-    if not ho_name:
-        # List all available history outputs
-        regions = {}
-        for hk in step.historyRegions.keys():
-            region = step.historyRegions[hk]
-            outputs = list(region.historyOutputs.keys())
-            regions[hk] = outputs
-        result = {'success': True, 'step': step_name, 'historyRegions': regions}
-    else:
-        # Extract data for specific history output
-        data = []
-        for hk in step.historyRegions.keys():
-            region = step.historyRegions[hk]
-            if ho_name in region.historyOutputs:
-                ho = region.historyOutputs[ho_name]
-                for point_data in ho.data:  # list of tuples (time, value)
-                    data.append({'time': round(point_data[0], 6), 'value': round(point_data[1], 6)})
-        magnitudes = [d['value'] for d in data] if data else []
-        result = {
-            'success': True,
-            'step': step_name,
-            'historyOutput': ho_name,
-            'numPoints': len(data),
-            'min': round(min(magnitudes), 4) if magnitudes else None,
-            'max': round(max(magnitudes), 4) if magnitudes else None,
-            'data': data[:1000],  # limit to first 1000 points
-        }
-    odb.close()
-except Exception as e:
-    import traceback
-    result = {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
-""".replace("__ODB_PATH__", json.dumps(odb_path)) \
-      .replace("__STEP__", json.dumps(step_name)) \
-      .replace("__HO__", json.dumps(history_output_name))
     return await _exec(code, timeout or 60.0)
 
 
@@ -728,9 +480,9 @@ def abaqus_workflow_create_and_run() -> str:
 1. **Check session**: `ping` - see existing models, check if clean.
 2. **Set working directory (if needed)**: If building a new model from scratch, ask the user whether to change the working directory. Use `set_workdir(path="C:/your/project")` to set it. CAE/ODB files will be saved there.
 3. **Create model**: Write Python code with `from abaqus import mdb, session` and `from abaqusConstants import *`. Create parts, materials, sections, assembly, steps, loads, BCs, mesh, and job.
-4. **Submit job**: `submit_job(job_name="YourJob")` - waits for completion.
-5. **Inspect ODB**: `get_odb_info(odb_path="path/to/YourJob.odb")` to see available steps/frames/variables.
-6. **Extract results**: `get_field_output(odb_path="...", output_variable="S")` for stress, `"U"` for displacement, etc.
+4. **Submit job**: Use `run_python` — call `job.submit(consistencyChecking=False)` to launch asynchronously. Check status later with `mdb.jobs['YourJob'].status`.
+5. **Inspect ODB**: Use `run_python` or `get_odb_info` to see available steps/frames/variables.
+6. **Extract results**: Use `run_python` with `odbAccess` to extract field/history output.
 7. **Capture viewport**: `capture_viewport()` to see visual results.
 
 Always tell the user what you're doing at each step."""
@@ -742,15 +494,15 @@ def abaqus_odb_postprocessing() -> str:
     return r"""ODB post-processing via Abaqus MCP:
 
 1. **Open and inspect**: `get_odb_info(odb_path)` to see steps, frames, instances, and available field/history variables.
-2. **Field output**: Use `get_field_output(odb_path, step_name, frame_index, output_variable)`. Common variables:
+2. **Field output**: Use `run_python` with `odbAccess.openOdb` and `frame.fieldOutputs[variable]`. Common variables:
    - `"S"` - Stress tensor components / von Mises
    - `"U"` - Displacement (U1, U2, U3, magnitude)
    - `"E"` - Strain tensor
    - `"RF"` - Reaction force
    - `"MISESMAX"` - Max von Mises (if defined)
-3. **History output**: Use `get_history_output(odb_path, step_name)` first to list available outputs, then call with a specific `history_output_name` to get time-history data.
+3. **History output**: Use `run_python` with `step.historyRegions[name].historyOutputs[name].data` to extract time-history curves.
 4. **Viewport**: Capture deformed shape / contour plots with `capture_viewport()` after setting the displayed object in Abaqus.
-5. **Limitations**: The bridge returns summary statistics (min/max/mean) and samples - not full datasets. For detailed analysis, use Abaqus/Viewer locally."""
+5. **Flexibility**: `run_python` gives you full control — filter by element set, section point, component, or any criteria the Abaqus API supports."""
 
 
 def main() -> None:

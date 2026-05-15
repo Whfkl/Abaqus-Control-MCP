@@ -80,11 +80,8 @@ To reduce permission prompts, whitelist read-only tools in `.claude/settings.jso
     "allow": [
       "mcp__abaqus__ping",
       "mcp__abaqus__inspect",
-      "mcp__abaqus__get_model_info",
       "mcp__abaqus__list_jobs",
-      "mcp__abaqus__get_odb_info",
-      "mcp__abaqus__get_field_output",
-      "mcp__abaqus__get_history_output"
+      "mcp__abaqus__get_odb_info"
     ]
   }
 }
@@ -105,14 +102,12 @@ abaqus-control-check
 | `ping` | Check connectivity + session state (models, viewports, PID) |
 | `run_python` | Execute arbitrary Python code in the Abaqus kernel |
 | `inspect` | Inspect an object path — returns keys or public attributes |
-| `get_model_info` | List parts, materials, steps, loads, BCs, interactions |
 | `list_jobs` | List all jobs with status, type, model |
-| `submit_job` | Submit a job by name and wait for completion |
 | `get_odb_info` | Open ODB read-only: steps, frames, available variables |
-| `get_field_output` | Extract field output (S/E/U/RF) with min/max/mean |
-| `get_history_output` | Extract time-history curves from ODB history outputs |
 | `capture_viewport` | Capture viewport screenshot as base64 (PNG/JPEG/TIFF/SVG) |
 | `set_workdir` | Change the Abaqus working directory |
+
+> Model creation, job submission, field/history output extraction — all go through `run_python`. This gives you full Abaqus API access without parameter limitations.
 
 ## MCP Prompts
 
@@ -120,7 +115,7 @@ abaqus-control-check
 |--------|---------|
 | `abaqus_scripting_strategy` | Best practices for Abaqus scripting via MCP + error recovery SOP |
 | `abaqus_workflow_create_and_run` | End-to-end: create model → submit job → post-process |
-| `abaqus_odb_postprocessing` | Guide for extracting and interpreting ODB results |
+| `abaqus_odb_postprocessing` | Guide for extracting and interpreting ODB results via `run_python` |
 
 ## Environment Variables
 
