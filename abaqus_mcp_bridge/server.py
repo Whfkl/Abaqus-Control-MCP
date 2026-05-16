@@ -447,62 +447,7 @@ def abaqus_agent_instructions() -> str:
     return INSTRUCTIONS
 
 
-# ---------------------------------------------------------------------------
-# MCP Prompts - guide LLM behaviour
-# ---------------------------------------------------------------------------
 
-
-@mcp.prompt()
-def abaqus_scripting_strategy() -> str:
-    """Best practices for writing Abaqus scripts that will be sent to an active
-    Abaqus/CAE session via the `run_python` tool."""
-    return r"""**Engineering AI SOP for Abaqus:**
-
-1. **Check Working Directory First:** If building a new model from scratch, you MUST first ask the user whether they want to change the working directory. Use `set_workdir` if they confirm. Files (CAE, ODB, etc.) will be saved to the current working directory.
-2. **No Blind Guessing:** If you are unsure of a method, attribute, or dictionary key in the Abaqus API, you MUST use `inspect` first.
-3. **Step-by-Step Execution (Chunking):** Never write the entire script at once. Work in stages: (A) Geometry & Mesh -> (B) Materials & Sections -> (C) Assembly & Steps -> (D) Loads & BCs. After executing the code for one stage, STOP. Summarize what was created, and explicitly ask the user: "Should I proceed to the next stage?"
-4. **UI Handoff for Complex Geometry:** Do NOT attempt to write complex `findAt` coordinate logic to select faces, edges, or vertices for Sets/Surfaces. It is highly error-prone，unless absolutely necessary. Instead, STOP execution and instruct the user: "Please manually create a Set/Surface for the required boundary condition in the Abaqus GUI. Let me know the exact name of the Set/Surface once you are done, and I will continue with the script."
-
-## Error Recovery Standard Operating Procedure (SOP)
-When `run_python` returns `"ok": False`, you MUST strictly follow this protocol:
-1. **Read the Error:** Analyze the `core_error` and the `action_suggestion` in the JSON response.
-2. **Execute the Suggestion:** Strictly follow the `action_suggestion`. If it mandates using `inspect`, you MUST call that tool immediately to inspect the parent object or dictionary. Use `depth=2` when you need to see nested structure. DO NOT guess or blind-retry without inspecting first.
-3. **Web-Assisted Recovery:** If the `search_queries` field is present in the `recovery` metadata and inspection alone does not clearly resolve the error, use web search with those queries (include the Abaqus version) to find the correct API usage, method signatures, or naming conventions. Combine documentation findings with local inspection results.
-4. **Silent Recovery:** DO NOT apologize to the user. DO NOT output conversational filler like "I'm sorry, let me fix that." Just silently trigger the tool call to gather the right info, rewrite the code based on the factual inspection, and execute again.
-"""
-
-
-@mcp.prompt()
-def abaqus_workflow_create_and_run() -> str:
-    """End-to-end workflow for creating a model, running an analysis, and post-processing results."""
-    return r"""End-to-end Abaqus workflow via MCP:
-
-1. **Check session**: `ping` - see existing models, check if clean.
-2. **Set working directory (if needed)**: If building a new model from scratch, ask the user whether to change the working directory. Use `set_workdir(path="C:/your/project")` to set it. CAE/ODB files will be saved there.
-3. **Create model**: Write Python code with `from abaqus import mdb, session` and `from abaqusConstants import *`. Create parts, materials, sections, assembly, steps, loads, BCs, mesh, and job.
-4. **Submit job**: Use `run_python` — call `job.submit(consistencyChecking=False)` to launch asynchronously. Check status later with `mdb.jobs['YourJob'].status`.
-5. **Inspect ODB**: Use `run_python` or `get_odb_info` to see available steps/frames/variables.
-6. **Extract results**: Use `run_python` with `odbAccess` to extract field/history output.
-7. **Capture viewport**: `capture_viewport()` to see visual results.
-
-Always tell the user what you're doing at each step."""
-
-
-@mcp.prompt()
-def abaqus_odb_postprocessing() -> str:
-    """Guide for extracting and visualizing results from Abaqus ODB files."""
-    return r"""ODB post-processing via Abaqus MCP:
-
-1. **Open and inspect**: `get_odb_info(odb_path)` to see steps, frames, instances, and available field/history variables.
-2. **Field output**: Use `run_python` with `odbAccess.openOdb` and `frame.fieldOutputs[variable]`. Common variables:
-   - `"S"` - Stress tensor components / von Mises
-   - `"U"` - Displacement (U1, U2, U3, magnitude)
-   - `"E"` - Strain tensor
-   - `"RF"` - Reaction force
-   - `"MISESMAX"` - Max von Mises (if defined)
-3. **History output**: Use `run_python` with `step.historyRegions[name].historyOutputs[name].data` to extract time-history curves.
-4. **Viewport**: Capture deformed shape / contour plots with `capture_viewport()` after setting the displayed object in Abaqus.
-5. **Flexibility**: `run_python` gives you full control — filter by element set, section point, component, or any criteria the Abaqus API supports."""
 
 
 def main() -> None:
