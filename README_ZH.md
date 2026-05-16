@@ -5,21 +5,30 @@
 
 [English](README.md) | 中文
 
-> **像聊天一样控制 Abaqus。** 描述你要做的有限元分析——几何、材料、载荷——AI 直接在活跃的 Abaqus/CAE 里执行代码。不用写脚本，不用中转文件，不用开 `noGUI`。
+> **让 AI 可以直接驱动 Abaqus。** 只要描述你想要的模型——几何、材料、载荷、分析步——AI 就能在你的 Abaqus/CAE 会话里执行对应操作。
 
-**Abaqus Control MCP** 把 Claude、Cursor 等 MCP 兼容的 AI 工具接入运行中的 Abaqus/CAE。你跟 AI 对话，AI 操控 Abaqus，模型实时变化。
+**Abaqus Control MCP** 把 Claude、Cursor 以及其他 MCP 兼容客户端连接到正在运行的 Abaqus/CAE。你描述任务，AI 把它转成 Abaqus 操作，模型会实时更新。
 
 > **旧版 Abaqus** 自带 Python 2。如果你的 Abaqus 使用 Python 2，请使用 [Python 2 兼容版本](https://github.com/hp283260133-bit/Abaqus-Control-MCP-abaqus2021)。
 
 ### 为什么选它？
 
-- **实时 GUI 反馈** — 代码跑在你的活跃 Abaqus 窗口里，每建一个零件、每画一次网格都立即可见。
-- **零中间文件** — 结果通过 TCP 桥接直接返回，不产生散落一地的 `.py` 和 `.odb`。
-- **完整 API 访问** — `mdb`、`session` 和全部 Abaqus Python 模块全部可用，没有沙箱，没有限制。
-- **本地隔离** — 桥接只监听 `127.0.0.1:48152`，所有数据不出你的工作站。
-- **标准 MCP 协议** — 支持 Claude Code、Claude Desktop、Cursor 和所有 MCP 兼容客户端，丢个配置就能用。
+- **直接在 GUI 中工作** — 操作会发生在当前 Abaqus 窗口中，几何、网格和结果都能即时看到。
+- **流畅建模体验** — 直接通过桥接与 Abaqus 内核交互，让建模过程更顺手。
+- **mdb、session、odb 以及其余 Python API 都可直接使用** — 让 AI 充分发挥能力。
+- **保持会话可交互** — 工程师可以随时查看建模进展，无需中断会话。
+- **仅本地运行** — 桥接只监听 `127.0.0.1:48152`，数据不会离开你的机器。
+- **兼容常见 MCP 客户端** — Claude Code、Claude Desktop、Cursor 等都可以用同一套配置接入。
 
 ## 安装配置
+
+**AI agent 一键安装**
+
+如果你的 AI agent 支持自然语言安装，只需输入：
+
+```text
+安装 https://github.com/Whfkl/Abaqus-Control-MCP
+```
 
 **1. 安装包**
 
@@ -107,14 +116,6 @@ abaqus-control-check
 | `set_workdir` | 修改 Abaqus 工作目录 |
 
 > 建模、提交作业、提取场/历史输出——全部通过 `run_python` 完成，拥有完整的 Abaqus API 访问权限，不受封装参数限制。
-
-## MCP 提示
-
-| 提示 | 用途 |
-|------|------|
-| `abaqus_scripting_strategy` | Abaqus 脚本最佳实践 + 错误恢复 SOP |
-| `abaqus_workflow_create_and_run` | 端到端：建模 → 提交 → 后处理 |
-| `abaqus_odb_postprocessing` | 通过 `run_python` 提取和解读 ODB 结果 |
 
 ## 环境变量
 

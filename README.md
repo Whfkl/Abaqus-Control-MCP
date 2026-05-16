@@ -5,22 +5,30 @@
 
 [中文](README_ZH.md) | English
 
-> **Chat with your Abaqus.** Describe the FEM analysis you need — geometry, materials, loads — and AI executes it directly in your live Abaqus/CAE session. No scripting, no file juggling, no `noGUI` processes.
+> **Let AI drive Abaqus directly.** Describe the model you want — geometry, materials, loads, steps — and let the AI work inside your live Abaqus/CAE session.
 
-**Abaqus Control MCP** connects Claude, Cursor, and other MCP-compatible AI tools to a running Abaqus/CAE instance. You talk to the AI. The AI talks to Abaqus. Your model updates in real time.
+**Abaqus Control MCP** connects Claude, Cursor, and any other MCP-compatible client to a running Abaqus/CAE instance. You describe the task, the AI translates it into Abaqus actions, and the model updates in real time.
 
 > **Older Abaqus versions** ship Python 2. If your Abaqus uses Python 2, use the [Python 2 compatible fork](https://github.com/hp283260133-bit/Abaqus-Control-MCP-abaqus2021) instead.
 
 ### Why this?
 
-- **Live GUI feedback** — code runs in your active Abaqus window. Every part, step, and mesh change appears as it happens.
-- **No intermediate files** — results stream back through the TCP bridge. No `.py` scripts littering your working directory.
-- **Full API access** — `mdb`, `session`, and every Abaqus Python module are available. No sandbox, no restrictions.
-- **Local-only** — the bridge listens on `127.0.0.1:48152`. Nothing leaves your workstation.
-- **Standard MCP** — works with Claude Code, Claude Desktop, Cursor, and any MCP-compatible client. Drop in the config and go.
+- **Work directly in the live GUI** — actions run in your active Abaqus window, so geometry, mesh, and results stay visible as they change.
+- **Full access to Abaqus objects** — `mdb`, `session`, `odb`, and the rest of the Python API are directly available, letting AI do the work.
+- **Keep the session interactive** — engineers can inspect progress at any time without stopping the session.
+- **Stay local** — the bridge listens on `127.0.0.1:48152`, so nothing leaves your machine.
+- **Use any MCP client** — Claude Code, Claude Desktop, Cursor, and other compatible clients can connect with the same setup.
 
 
 ## Setup
+
+**AI agent one-click install**
+
+If your AI agent supports natural-language installation, just prompt it with:
+
+```text
+install https://github.com/Whfkl/Abaqus-Control-MCP
+```
 
 **1. Install the package**
 
@@ -108,14 +116,6 @@ abaqus-control-check
 | `set_workdir` | Change the Abaqus working directory |
 
 > Model creation, job submission, field/history output extraction — all go through `run_python`. This gives you full Abaqus API access without parameter limitations.
-
-## MCP Prompts
-
-| Prompt | Purpose |
-|--------|---------|
-| `abaqus_scripting_strategy` | Best practices for Abaqus scripting via MCP + error recovery SOP |
-| `abaqus_workflow_create_and_run` | End-to-end: create model → submit job → post-process |
-| `abaqus_odb_postprocessing` | Guide for extracting and interpreting ODB results via `run_python` |
 
 ## Environment Variables
 
