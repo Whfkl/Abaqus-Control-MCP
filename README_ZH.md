@@ -147,10 +147,6 @@ print(result['return_value'])  # ['Model-1', ...]
 | 模型未出现在 GUI 中 | 运行 `abaqus-control-check`，确认 `"thread": "MainThread"` |
 | Claude Code 看不到 MCP 工具 | 1. 运行 `claude mcp list` 检查 `abaqus` 是否已注册。2. 如果未列出，运行 `claude mcp add -s user -e ABAQUS_MCP_HOST=127.0.0.1 -e ABAQUS_MCP_PORT=48152 -e ABAQUS_MCP_TIMEOUT=120 abaqus /absolute/path/to/abaqus-control-mcp-server`。3. 改完配置后重启 Claude Code。 |
 
-## 安全
-
-仅监听 `127.0.0.1`。以 Abaqus 进程同等权限执行 Python。日志写入系统临时目录。分享前请检查输出中是否包含本机路径或模型名称。
-
 ## 许可证
 
 MIT — 详见 [LICENSE](LICENSE)。
