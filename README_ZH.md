@@ -87,7 +87,7 @@ Claude Code 会在会话启动时自动拉起 MCP 服务，无需手动启动。
   "permissions": {
     "allow": [
       "mcp__abaqus__ping",
-      "mcp__abaqus__inspect",
+      "mcp__abaqus__run_python",
       "mcp__abaqus__monitor_job_status",
       "mcp__abaqus__inspect_odb"
     ]
@@ -109,13 +109,12 @@ abaqus-control-check
 |------|------|
 | `ping` | 检查连接 + 会话状态（模型、视口、PID） |
 | `run_python` | 在 Abaqus 内核中执行任意 Python 代码 |
-| `inspect` | 检查对象路径，返回键名或公开属性 |
 | `monitor_job_status` | 列出作业或读取 `.sta`/`.msg` 获取进度与诊断 |
 | `inspect_odb` | 只读打开 ODB：帧裁剪，变量含分量信息 |
 | `capture_viewport` | 截取视口图像为 base64（PNG/JPEG/TIFF/SVG） |
 | `set_workdir` | 修改 Abaqus 工作目录 |
 
-> 建模、提交作业、提取场/历史输出——全部通过 `run_python` 完成，拥有完整的 Abaqus API 访问权限，不受封装参数限制。
+> 建模、提交作业、提取场/历史输出——全部通过 `run_python` 完成。它的错误返回会包含 traceback、错误行号、代码片段和修复提示。
 
 ## 环境变量
 

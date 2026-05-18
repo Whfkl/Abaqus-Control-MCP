@@ -1,8 +1,7 @@
 """MCP stdio server that forwards Python execution requests to Abaqus.
 
-Core tools: ping, run_python, inspect — plus viewport capture and ODB metadata
-as helpers that are awkward to replicate with raw Python. Everything else
-(model creation, job submission, field output extraction) goes through run_python.
+Core tools: ping, run_python — plus viewport capture and ODB metadata.
+Most debugging should come from run_python's structured error payload.
 """
 
 from __future__ import annotations
@@ -50,7 +49,7 @@ INSTRUCTIONS = """You are an elite simulation engineer controlling a live Abaqus
 Your goal is to build robust, highly stable, and production-grade finite element models.
 
 CORE SIMULATION RULES:
-1. SEMANTIC GEOMETRY (Golden Rule): NEVER use raw coordinates or `findAt()` to assign boundary conditions, sections, or loads.
+1. SEMANTIC GEOMETRY (Golden Rule): Better not use raw coordinates or `findAt()` to assign boundary conditions, sections, or loads.
     - Immediately after creating a part or feature, grab its geometry using robust methods:
       * `getByBoundingBox(xMin, yMin, zMin, xMax, yMax, zMax)`
       * `getByBoundingCylinder(...)`
@@ -63,21 +62,16 @@ CORE SIMULATION RULES:
     - Verify each phase's correctness via execution before proceeding. No rigid linear chains — adapt the phase size to the task's complexity.
 
 3. DOCKING & DIAGNOSTICS (No Guessing & Web Search): Never guess Abaqus API methods, attributes, or signatures.
-    - If unsure about keys or attributes, run a micro-python script using `run_python` to print lists (e.g., `print(dir(obj))` or `print(obj.keys())`).
-    - If live local reflection is insufficient, or if you encounter complex API signature mismatches, ALWAYS call the web search tool (including the term 'Abaqus' and target versions, e.g., 'Abaqus 2022 Python API ...') to find official documentation, forum examples, or method signatures.
-    - Combine web search findings with the server's structured `actionable_insight` (which contains Levenshtein fuzzy spelling suggestions) to heal and rewrite your code instantly.
+    - If live local reflection is insufficient, or if you encounter complex API signature mismatches, ALWAYS call the web search tool (including the term 'Abaqus' and target versions, e.g., 'Abaqus 2024 Python API ...') to find official documentation, forum examples, or method signatures.
 
-4. REAL-TIME SOLVER TELEMETRY: When a solver job is running, do not block the thread or wait blindly.
-    - Use `monitor_job_status(job_name)` to actively monitor convergence progress by reading the solver status (.sta) file tail.
-    - If a job aborts, use `monitor_job_status(job_name)` to parse solver message (.msg) errors, identify the physical convergence failure (e.g., zero pivot, distortion), and self-heal the model parameters.
 
-5. WORKING DIRECTORY & PERSISTENCE: Every Abaqus analysis generates a massive number of solver files (.inp, .odb, .sta, .msg, etc.).
+4. WORKING DIRECTORY & PERSISTENCE: Every Abaqus analysis generates a massive number of solver files (.inp, .odb, .sta, .msg, etc.).
     - Before writing any model, ALWAYS query or set a clean working directory (using the `set_workdir` tool or standard Python `os.chdir` at the start of your script). Do NOT let Abaqus run in default system paths, which causes permission errors and directory pollution.
     - Periodically save the database (.cae file) to the working directory using `mdb.saveAs(pathName=...)` (e.g., `mdb.saveAs(pathName='D:/temp/My-Model.cae')`). Never leave the CAE session unsaved, ensuring persistence against solver crashes.
 
-6. CONCISE PAIR-PROGRAMMING: Avoid robotic headers, repetitive intent declarations, and verbose apologies. Keep explanations technical, clear, and direct. Focus on finite element modeling best practices.
+5. CONCISE PAIR-PROGRAMMING: Avoid robotic headers, repetitive intent declarations, and verbose apologies. Keep explanations technical, clear, and direct. Focus on finite element modeling best practices.
 
-CODE CONVENTIONS: Use `from abaqus import *` and `from abaqusConstants import *`. Store the execution results in a dictionary named `result` (e.g., `result = {'success': True, ...}`). Always wrap execution blocks in try/except."""
+"""
 
 mcp = FastMCP("abaqus-control-mcp", instructions=INSTRUCTIONS)
 
@@ -98,88 +92,6 @@ def _client(timeout: float | None = None) -> AbaqusBridgeClient:
 async def _exec(code: str, timeout: float | None = None) -> dict[str, Any]:
     """Execute Python code in Abaqus and return the result dict."""
     return await anyio.to_thread.run_sync(_client(timeout).execute, code)
-
-
-def _inspect_code(object_path: str, depth: int = 1) -> str:
-    """Build Abaqus-side code for introspecting an object path."""
-    depth = max(1, min(depth, 3))
-    return r"""
-from abaqus import mdb, session
-
-object_path = __OBJECT_PATH__
-max_depth = __DEPTH__
-
-def _jsonable_key(key):
-    try:
-        import json
-        json.dumps(key, ensure_ascii=False)
-        return key
-    except Exception:
-        return repr(key)
-
-def _safe_repr(val):
-    try:
-        r = repr(val)
-        return r[:200] if len(r) > 200 else r
-    except Exception:
-        return "<%s>" % type(val).__name__
-
-def _inspect_one(obj, current_depth):
-    keys_method = getattr(obj, "keys", None)
-    if callable(keys_method):
-        info = {
-            "kind": "mapping",
-            "type": type(obj).__name__,
-            "keys": [_jsonable_key(key) for key in keys_method()],
-        }
-        if current_depth < max_depth:
-            children = {}
-            for key in list(keys_method())[:20]:
-                try:
-                    child = obj[key]
-                    children[_jsonable_key(key)] = _inspect_one(child, current_depth + 1)
-                except Exception as e:
-                    children[_jsonable_key(key)] = {"error": str(e)}
-            info["children"] = children
-        return info
-    else:
-        attrs = [name for name in dir(obj) if not name.startswith("_")]
-        info = {
-            "kind": "object",
-            "type": type(obj).__name__,
-            "attributes": attrs,
-        }
-        if current_depth < max_depth:
-            children = {}
-            for attr in attrs[:20]:
-                try:
-                    child = getattr(obj, attr)
-                    if callable(child):
-                        children[attr] = {"kind": "callable", "type": type(child).__name__}
-                    else:
-                        children[attr] = _inspect_one(child, current_depth + 1)
-                except Exception as e:
-                    children[attr] = {"error": str(e)}
-            info["children"] = children
-        return info
-
-try:
-    obj = eval(object_path, {"__builtins__": {}}, {"mdb": mdb, "session": session})
-    info = _inspect_one(obj, 1)
-    info["ok"] = True
-    info["object_path"] = object_path
-    result = info
-except Exception as exc:
-    result = {
-        "ok": False,
-        "object_path": object_path,
-        "error": "Inspection failed for %r: %s: %s" % (
-            object_path,
-            type(exc).__name__,
-            str(exc),
-        ),
-    }
-""".replace("__OBJECT_PATH__", json.dumps(object_path)).replace("__DEPTH__", str(depth))
 
 
 # ---------------------------------------------------------------------------
@@ -217,30 +129,11 @@ async def run_python(code: str, timeout: float | None = None) -> dict[str, Any]:
 
     Single-line expressions are evaluated and their value returned.
     Multi-line code is executed; set a variable named ``result`` to return data.
-    Stdout, stderr, and any error details are included in the response.
+    Stdout, stderr, traceback, error line, and code excerpts are included in the response.
     """
     if not code.strip():
         raise ValueError("code must not be empty")
     return await _exec(code, timeout)
-
-
-@mcp.tool()
-async def inspect(object_path: str, depth: int = 1, timeout: float | None = None) -> dict[str, Any]:
-    """Inspect an Abaqus object path and return available keys or public attributes.
-
-    Args:
-        object_path: Python expression evaluating to an Abaqus object.
-        depth: How many levels deep to inspect (1-3, default 1). depth=2 shows
-            child objects inline, reducing the number of follow-up inspect calls.
-
-    Examples:
-        - ``mdb.models['Model-1'].parts``
-        - ``session.viewports``
-        - ``mdb.models['Model-1'].rootAssembly``
-    """
-    if not object_path.strip():
-        raise ValueError("object_path must not be empty")
-    return await _exec(_inspect_code(object_path.strip(), depth), timeout)
 
 
 @mcp.tool()

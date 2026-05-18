@@ -87,7 +87,7 @@ To reduce permission prompts, whitelist read-only tools in `.claude/settings.jso
   "permissions": {
     "allow": [
       "mcp__abaqus__ping",
-      "mcp__abaqus__inspect",
+      "mcp__abaqus__run_python",
       "mcp__abaqus__monitor_job_status",
       "mcp__abaqus__inspect_odb"
     ]
@@ -109,13 +109,12 @@ abaqus-control-check
 |------|-------------|
 | `ping` | Check connectivity + session state (models, viewports, PID) |
 | `run_python` | Execute arbitrary Python code in the Abaqus kernel |
-| `inspect` | Inspect an object path — returns keys or public attributes |
 | `monitor_job_status` | List jobs or tail `.sta`/`.msg` for progress and diagnostics |
 | `inspect_odb` | Open ODB read-only: sliced frames, variables with components |
 | `capture_viewport` | Capture viewport screenshot as base64 (PNG/JPEG/TIFF/SVG) |
 | `set_workdir` | Change the Abaqus working directory |
 
-> Model creation, job submission, field/history output extraction — all go through `run_python`. This gives you full Abaqus API access without parameter limitations.
+> Model creation, job submission, field/history output extraction — all go through `run_python`. Its error payload includes the traceback, error line, code excerpt, and recovery hints.
 
 ## Environment Variables
 
