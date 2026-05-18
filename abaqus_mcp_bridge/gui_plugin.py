@@ -343,11 +343,6 @@ try:
                 returned = eval(compiled, namespace, namespace)
         except Exception as exc:
             returned_error = _format_execution_error(code, exc, namespace)
-            returned_error.update({
-                "mode": mode,
-                "stdout": stdout.getvalue(),
-                "stderr": stderr.getvalue(),
-            })
             payload = {
                 "ok": True,
                 "result": returned_error,
@@ -367,11 +362,7 @@ try:
 except Exception as exc:
     payload = {
         "ok": True,
-        "result": dict(
-            _format_execution_error(code, exc),
-            stdout=stdout.getvalue(),
-            stderr=stderr.getvalue(),
-        ),
+        "result": _format_execution_error(code, exc),
     }
 
 with open(response_path, "w") as handle:
