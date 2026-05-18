@@ -69,37 +69,6 @@ def _client(timeout: float | None = None) -> AbaqusBridgeClient:
     )
 
 
-_VIEWPORT_CODE_TEMPLATE = r"""
-import os, tempfile, base64
-from abaqus import session
-
-vp_name = __VP__
-fmt = __FMT__
-
-result = {}
-try:
-    if not vp_name or vp_name not in session.viewports.keys():
-        vp_name = session.currentViewportName
-    vp = session.viewports[vp_name]
-    tmp = tempfile.NamedTemporaryFile(suffix='.' + fmt.lower(), delete=False)
-    tmp.close()
-    vp.view.print(filename=tmp.name, format=fmt.upper(), options='')
-    with open(tmp.name, 'rb') as f:
-        b64 = base64.b64encode(f.read()).decode('ascii')
-    os.unlink(tmp.name)
-    result = {
-        'success': True,
-        'viewport': vp_name,
-        'format': fmt.lower(),
-        'image_base64': b64,
-        'size_bytes': len(b64) * 3 // 4,
-    }
-except Exception as e:
-    import traceback
-    result = {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
-"""
-
-
 # ---------------------------------------------------------------------------
 # Generic python execution wrapper
 # ---------------------------------------------------------------------------
@@ -284,41 +253,88 @@ except Exception as e:
 
 
 @mcp.tool()
-async def list_jobs(timeout: float | None = None) -> dict[str, Any]:
-    """List all analysis jobs defined in the current Abaqus session with their status."""
+async def monitor_job_status(job_name: str = "", timeout: float | None = None) -> dict[str, Any]:
+    """Monitor Abaqus job status and optional OS-level progress from .sta/.msg files.
+
+    Args:
+        job_name: If provided, read [JobName].sta and [JobName].msg in the working
+            directory to extract recent progress and diagnostics. If empty, list
+            all jobs defined in the current Abaqus session.
+    """
     code = r"""
+import os
+import re
 from abaqus import mdb
-jobs = []
-for name in mdb.jobs.keys():
-    job = mdb.jobs[name]
-    j = {'name': name}
-    for attr in ('status', 'type', 'model', 'description', 'numCpus', 'numDomains', 'memory', 'explicitPrecision'):
-        try:
-            val = getattr(job, attr, None)
-            if val is not None:
-                j[attr] = str(val)
-        except Exception:
-            pass
-    jobs.append(j)
-result = {'jobs': jobs}
-"""
+
+job_name = __JOB_NAME__
+
+def _tail_lines(path, count):
+    try:
+        with open(path, 'r') as f:
+            lines = f.read().splitlines()
+        if count <= 0:
+            return []
+        return lines[-count:]
+    except Exception:
+        return []
+
+def _grep_tail(path, patterns, limit):
+    try:
+        rx = re.compile('|'.join(patterns))
+        matches = []
+        with open(path, 'r') as f:
+            for line in f:
+                if rx.search(line):
+                    matches.append(line.rstrip())
+        return matches[-limit:] if limit > 0 else matches
+    except Exception:
+        return []
+
+result = {}
+if not job_name:
+    jobs = []
+    for name in mdb.jobs.keys():
+        job = mdb.jobs[name]
+        j = {'name': name}
+        for attr in ('status', 'type', 'model', 'description', 'numCpus', 'numDomains', 'memory', 'explicitPrecision'):
+            try:
+                val = getattr(job, attr, None)
+                if val is not None:
+                    j[attr] = str(val)
+            except Exception:
+                pass
+        jobs.append(j)
+    result = {'jobs': jobs}
+else:
+    sta_path = os.path.join(os.getcwd(), job_name + '.sta')
+    msg_path = os.path.join(os.getcwd(), job_name + '.msg')
+    progress_lines = _tail_lines(sta_path, 5)
+    diagnostic_lines = _grep_tail(msg_path, [r'^\*\*\*ERROR', r'^\*\*\*WARNING'], 10)
+    result = {
+        'job_name': job_name,
+        'sta_path': sta_path,
+        'msg_path': msg_path,
+        'progress_tail': progress_lines,
+        'diagnostics_tail': diagnostic_lines,
+    }
+""".replace("__JOB_NAME__", json.dumps(job_name.strip()))
     return await _exec(code, timeout)
 
 
 @mcp.tool()
-async def get_odb_info(odb_path: str, timeout: float | None = None) -> dict[str, Any]:
+async def inspect_odb(odb_path: str, timeout: float | None = None) -> dict[str, Any]:
     """Open an ODB file (read-only) and return its metadata.
 
-    Returns steps (with frame count and total time), parts, instances, section points,
-    and available field/history output variables.
+    Returns steps (with sliced frames and total time), parts, instances, section points,
+    and available field/history output variables with positions and components.
     """
     code = r"""
 from abaqus import mdb
 from odbAccess import openOdb
-import json
 
 odb_path = __ODB_PATH__
 info = {}
+odb = None
 try:
     odb = openOdb(path=odb_path, readOnly=True)
     info['title'] = str(getattr(odb, 'title', ''))
@@ -326,12 +342,50 @@ try:
     info['parts'] = list(odb.parts.keys()) if hasattr(odb, 'parts') else []
     info['instances'] = list(odb.rootAssembly.instances.keys()) if hasattr(odb, 'rootAssembly') else []
     steps = []
+
+    def _slice_frames(frames):
+        count = len(frames)
+        if count <= 5:
+            return list(frames)
+        idxs = [0]
+        for k in range(1, 4):
+            idxs.append(int(round(k * (count - 1) / 4.0)))
+        idxs.append(count - 1)
+        seen = set()
+        uniq = []
+        for i in idxs:
+            if i not in seen and 0 <= i < count:
+                uniq.append(i)
+                seen.add(i)
+        return [frames[i] for i in uniq]
+
+    def _field_meta(field_output):
+        meta = {}
+        try:
+            meta['position'] = str(getattr(field_output, 'position', ''))
+        except Exception:
+            meta['position'] = ''
+        comps = []
+        try:
+            comps = list(getattr(field_output, 'componentLabels', []) or [])
+        except Exception:
+            comps = []
+        try:
+            invariants = list(getattr(field_output, 'validInvariants', []) or [])
+        except Exception:
+            invariants = []
+        meta['components'] = comps + [str(x) for x in invariants if str(x) not in comps]
+        return meta
+
     for sname in odb.steps.keys():
         s = odb.steps[sname]
         frames = []
-        for f in s.frames:
-            frames.append({'frameId': f.frameId, 'frameValue': f.frameValue,
-                           'description': str(getattr(f, 'description', ''))})
+        for f in _slice_frames(s.frames):
+            frames.append({
+                'frameId': f.frameId,
+                'frameValue': f.frameValue,
+                'description': str(getattr(f, 'description', '')),
+            })
         step_info = {
             'name': sname,
             'procedure': str(getattr(s, 'procedure', '')),
@@ -339,13 +393,15 @@ try:
             'frames': frames,
             'description': str(getattr(s, 'description', '')),
         }
-        # field outputs available in first frame
         if s.frames:
             try:
                 frame = s.frames[0]
                 fov = []
                 for desc in frame.fieldOutputs.keys():
-                    fov.append(desc)
+                    fo = frame.fieldOutputs[desc]
+                    meta = _field_meta(fo)
+                    meta['name'] = desc
+                    fov.append(meta)
                 step_info['fieldOutputs'] = fov
             except Exception:
                 step_info['fieldOutputs'] = []
@@ -359,11 +415,16 @@ try:
                 step_info['historyOutputs'] = []
         steps.append(step_info)
     info['steps'] = steps
-    odb.close()
     result = {'success': True, 'data': info}
 except Exception as e:
     import traceback
     result = {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
+finally:
+    try:
+        if odb is not None:
+            odb.close()
+    except Exception:
+        pass
 """.replace("__ODB_PATH__", json.dumps(odb_path))
     return await _exec(code, timeout or 60.0)
 
@@ -422,9 +483,9 @@ except Exception as e:
 # ---------------------------------------------------------------------------
 
 
-@mcp.resource("abaqus://status")
-def abaqus_status() -> str:
-    """Current Abaqus MCP plugin status (running / stopped / ready)."""
+@mcp.resource("abaqus://session-telemetry")
+def session_telemetry() -> str:
+    """Retrieve active Abaqus/CAE session telemetry and environment metadata."""
     import json as _json
     try:
         r = _client(5.0).ping()

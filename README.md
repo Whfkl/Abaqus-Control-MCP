@@ -88,8 +88,8 @@ To reduce permission prompts, whitelist read-only tools in `.claude/settings.jso
     "allow": [
       "mcp__abaqus__ping",
       "mcp__abaqus__inspect",
-      "mcp__abaqus__list_jobs",
-      "mcp__abaqus__get_odb_info"
+      "mcp__abaqus__monitor_job_status",
+      "mcp__abaqus__inspect_odb"
     ]
   }
 }
@@ -110,8 +110,8 @@ abaqus-control-check
 | `ping` | Check connectivity + session state (models, viewports, PID) |
 | `run_python` | Execute arbitrary Python code in the Abaqus kernel |
 | `inspect` | Inspect an object path — returns keys or public attributes |
-| `list_jobs` | List all jobs with status, type, model |
-| `get_odb_info` | Open ODB read-only: steps, frames, available variables |
+| `monitor_job_status` | List jobs or tail `.sta`/`.msg` for progress and diagnostics |
+| `inspect_odb` | Open ODB read-only: sliced frames, variables with components |
 | `capture_viewport` | Capture viewport screenshot as base64 (PNG/JPEG/TIFF/SVG) |
 | `set_workdir` | Change the Abaqus working directory |
 
