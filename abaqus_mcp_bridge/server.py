@@ -109,12 +109,17 @@ async def ping(timeout: float | None = None) -> dict[str, Any]:
     return await _exec(
         "from abaqus import mdb, session\n"
         "import os, sys, platform\n"
+        "try:\n"
+        "  cpu_count = os.cpu_count()\n"
+        "except AttributeError:\n"
+        "  import multiprocessing\n"
+        "  cpu_count = multiprocessing.cpu_count()\n"
         "result = {\n"
         "  'python': sys.version,\n"
         "  'executable': sys.executable,\n"
         "  'platform': platform.platform(),\n"
         "  'pid': os.getpid(),\n"
-        "  'cpu_count': os.cpu_count(),\n"
+        "  'cpu_count': cpu_count,\n"
         "  'abaqus_version': getattr(session, 'version', None),\n"
         "  'models': list(mdb.models.keys()),\n"
         "  'viewports': list(session.viewports.keys()),\n"
@@ -362,6 +367,7 @@ async def capture_viewport(
     code = r"""
 import os, tempfile, base64
 from abaqus import session
+import abaqusConstants as C
 
 vp_name = __VP__
 fmt = __FMT__
@@ -373,7 +379,8 @@ try:
     vp = session.viewports[vp_name]
     tmp = tempfile.NamedTemporaryFile(suffix='.' + fmt.lower(), delete=False)
     tmp.close()
-    vp.view.print(filename=tmp.name, format=fmt.upper(), options='')
+    fmt_const = getattr(C, fmt.upper())
+    session.printToFile(fileName=tmp.name, format=fmt_const, canvasObjects=(vp,))
     with open(tmp.name, 'rb') as f:
         b64 = base64.b64encode(f.read()).decode('ascii')
     os.unlink(tmp.name)

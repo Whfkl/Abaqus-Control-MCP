@@ -17,14 +17,32 @@ import base64
 import json
 import os
 import platform
-import queue
-import socketserver
 import sys
 import tempfile
 import threading
 import time
 import traceback
 import uuid
+
+try:
+    import queue
+except ImportError:  # Abaqus/CAE 2021 uses Python 2.7.
+    import Queue as queue
+
+try:
+    import socketserver
+except ImportError:  # Abaqus/CAE 2021 uses Python 2.7.
+    import SocketServer as socketserver
+
+try:
+    TimeoutError
+except NameError:  # Python 2.7 compatibility.
+    TimeoutError = RuntimeError
+
+try:
+    string_types = (basestring,)
+except NameError:
+    string_types = (str,)
 
 HOST = os.environ.get("ABAQUS_MCP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("ABAQUS_MCP_PORT", "48152"))
@@ -50,7 +68,10 @@ def _announce(message):
 
 
 def _send(sock, payload):
-    data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if sys.version_info[0] < 3:
+        data = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+    else:
+        data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     sock.sendall(data + b"\n")
 
 
@@ -60,17 +81,34 @@ def _recv(sock):
         chunk = sock.recv(4096)
         if not chunk:
             raise RuntimeError("socket closed before a complete message was received")
-        newline = chunk.find(b"\n")
+        newline = chunk.find(b"\n" if sys.version_info[0] >= 3 else "\n")
         if newline >= 0:
             chunks.append(chunk[:newline])
             break
         chunks.append(chunk)
+    if sys.version_info[0] < 3:
+        return json.loads("".join(chunks))
     return json.loads(b"".join(chunks).decode("utf-8"))
 
 
+def _as_utf8_bytes(value):
+    if sys.version_info[0] < 3:
+        if isinstance(value, unicode):
+            return value.encode("utf-8")
+        for encoding in (sys.getfilesystemencoding() or "", "utf-8", "mbcs", "latin-1"):
+            if not encoding:
+                continue
+            try:
+                return value.decode(encoding).encode("utf-8")
+            except Exception:
+                pass
+        return repr(value)
+    return value.encode("utf-8")
+
+
 def _kernel_wrapper(code, response_path):
-    encoded_code = base64.b64encode(code.encode("utf-8")).decode("ascii")
-    encoded_path = base64.b64encode(response_path.encode("utf-8")).decode("ascii")
+    encoded_code = base64.b64encode(_as_utf8_bytes(code)).decode("ascii")
+    encoded_path = base64.b64encode(_as_utf8_bytes(response_path)).decode("ascii")
     template = r'''
 import ast
 import base64
@@ -86,14 +124,53 @@ import traceback
 code = base64.b64decode("__ABAQUS_MCP_CODE__").decode("utf-8")
 response_path = base64.b64decode("__ABAQUS_MCP_RESPONSE__").decode("utf-8")
 
+def _exec_compiled(compiled, namespace):
+    exec("exec compiled in namespace, namespace")
+
+class _redirect_streams(object):
+    def __init__(self, stdout, stderr):
+        self.stdout = stdout
+        self.stderr = stderr
+        self._old_stdout = None
+        self._old_stderr = None
+
+    def __enter__(self):
+        self._old_stdout = sys.stdout
+        self._old_stderr = sys.stderr
+        sys.stdout = self.stdout
+        sys.stderr = self.stderr
+
+    def __exit__(self, exc_type, exc_value, tb):
+        sys.stdout = self._old_stdout
+        sys.stderr = self._old_stderr
+        return False
+
 def _jsonable(value):
+    if sys.version_info[0] < 3:
+        if isinstance(value, unicode):
+            return value
+        if isinstance(value, str):
+            for encoding in ("utf-8", sys.getfilesystemencoding() or "", "mbcs", "latin-1"):
+                if not encoding:
+                    continue
+                try:
+                    return value.decode(encoding)
+                except Exception:
+                    pass
+            return repr(value).decode("ascii", "replace")
+        if isinstance(value, dict):
+            return dict((_jsonable(k), _jsonable(v)) for k, v in value.items())
+        if isinstance(value, (list, tuple)):
+            return [_jsonable(v) for v in value]
+        if isinstance(value, set):
+            return [_jsonable(v) for v in sorted(list(value), key=lambda x: repr(x))]
     try:
-        json.dumps(value, ensure_ascii=False)
+        json.dumps(value, ensure_ascii=True)
         return value
     except Exception:
         return {
-            "repr": repr(value),
-            "type": "%s.%s" % (type(value).__module__, type(value).__name__),
+            "repr": _jsonable(repr(value)),
+            "type": _jsonable("%s.%s" % (type(value).__module__, type(value).__name__)),
         }
 
 def _node_source(node):
@@ -103,14 +180,18 @@ def _node_source(node):
         return None
 
 def _key_literal(node):
-    if isinstance(node, ast.Constant):
+    if hasattr(ast, "Constant") and isinstance(node, ast.Constant):
         return node.value
+    if isinstance(node, ast.Str):
+        return node.s
+    if isinstance(node, ast.Num):
+        return node.n
     if isinstance(node, ast.Index):
         return _key_literal(node.value)
     return None
 
 def _extract_tb_lineno(exc):
-    tb = exc.__traceback__
+    tb = getattr(exc, "__traceback__", None)
     while tb is not None:
         if tb.tb_frame.f_code.co_filename == "<abaqus-mcp>":
             return tb.tb_lineno
@@ -179,7 +260,9 @@ def _resolve_simple_expr(expr, namespace):
             return getattr(_eval_node(node.value), node.attr)
         if isinstance(node, ast.Subscript):
             base = _eval_node(node.value)
-            key = ast.literal_eval(node.slice)
+            key = _key_literal(node.slice)
+            if key is None:
+                key = ast.literal_eval(node.slice)
             return base[key]
         raise ValueError("unsupported expression node")
 
@@ -328,14 +411,14 @@ mode = "exec"
 payload = None
 
 try:
-    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+    with _redirect_streams(stdout, stderr):
         try:
             try:
                 parsed = ast.parse(code, mode="eval")
             except SyntaxError:
                 parsed = ast.parse(code, mode="exec")
                 compiled = compile(parsed, "<abaqus-mcp>", "exec")
-                exec(compiled, namespace, namespace)
+                _exec_compiled(compiled, namespace)
                 returned = namespace.get("result")
             else:
                 mode = "eval"
@@ -366,12 +449,15 @@ except Exception as exc:
     }
 
 with open(response_path, "w") as handle:
-    json.dump(payload, handle, ensure_ascii=False)
+    json.dump(_jsonable(payload), handle, ensure_ascii=True)
 '''
-    return (
+    command = (
         template.replace("__ABAQUS_MCP_CODE__", encoded_code)
         .replace("__ABAQUS_MCP_RESPONSE__", encoded_path)
     )
+    if sys.version_info[0] < 3 and isinstance(command, unicode):
+        command = command.encode("ascii")
+    return command
 
 
 def _run_kernel_code(code, timeout):
@@ -472,9 +558,14 @@ def _handle_on_gui_thread(item):
         code = (
             "import os, sys, platform\n"
             "from abaqus import mdb, session\n"
+            "try:\n"
+            "    cpu_count = os.cpu_count()\n"
+            "except AttributeError:\n"
+            "    import multiprocessing\n"
+            "    cpu_count = multiprocessing.cpu_count()\n"
             "result = {'python': sys.version, 'executable': sys.executable, "
             "'platform': platform.platform(), 'pid': os.getpid(), "
-            "'cpu_count': os.cpu_count(), "
+            "'cpu_count': cpu_count, "
             "'abaqus_version': getattr(session, 'version', None), "
             "'models': list(mdb.models.keys()), "
             "'viewports': list(session.viewports.keys())}"
@@ -490,7 +581,7 @@ def _handle_on_gui_thread(item):
 
     if method == "execute":
         code = params.get("code")
-        if not isinstance(code, str) or not code.strip():
+        if not isinstance(code, string_types) or not code.strip():
             raise ValueError("params.code must be a non-empty string")
         return _run_kernel_code(code, timeout)
 
@@ -592,20 +683,22 @@ class McpGuiActionForm(AFXForm):
             showAFXErrorDialog(getAFXApp().getAFXMainWindow(), message)
         return 1
 
-toolset = getAFXApp().getAFXMainWindow().getPluginToolset()
-toolset.registerGuiMenuButton(
-    object=McpGuiActionForm(toolset, "start"),
-    buttonText="Abaqus-Control-MCP|Start MCP Bridge",
-    version="0.1.0",
-    author="Codex",
-    applicableModules=["Part", "Property", "Assembly", "Step", "Interaction", "Load", "Mesh", "Job", "Visualization"],
-    description="Start the TCP bridge for the active Abaqus/CAE session.",
-)
-toolset.registerGuiMenuButton(
-    object=McpGuiActionForm(toolset, "stop"),
-    buttonText="Abaqus-Control-MCP|Stop MCP Bridge",
-    version="0.1.0",
-    author="Codex",
-    applicableModules=["Part", "Property", "Assembly", "Step", "Interaction", "Load", "Mesh", "Job", "Visualization"],
-    description="Stop the TCP bridge.",
-)
+if not globals().get("_ABAQUS_CONTROL_MCP_MENU_REGISTERED"):
+    toolset = getAFXApp().getAFXMainWindow().getPluginToolset()
+    toolset.registerGuiMenuButton(
+        object=McpGuiActionForm(toolset, "start"),
+        buttonText="Abaqus-Control-MCP|Start MCP Bridge",
+        version="0.1.0",
+        author="Codex",
+        applicableModules=["Part", "Property", "Assembly", "Step", "Interaction", "Load", "Mesh", "Job", "Visualization"],
+        description="Start the TCP bridge for the active Abaqus/CAE session.",
+    )
+    toolset.registerGuiMenuButton(
+        object=McpGuiActionForm(toolset, "stop"),
+        buttonText="Abaqus-Control-MCP|Stop MCP Bridge",
+        version="0.1.0",
+        author="Codex",
+        applicableModules=["Part", "Property", "Assembly", "Step", "Interaction", "Load", "Mesh", "Job", "Visualization"],
+        description="Stop the TCP bridge.",
+    )
+    _ABAQUS_CONTROL_MCP_MENU_REGISTERED = True
