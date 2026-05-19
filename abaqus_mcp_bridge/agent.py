@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import difflib
 import io
+import inspect
 import json
 import platform
 import socketserver
@@ -106,152 +108,170 @@ def _extract_func_name(exc: BaseException) -> str | None:
     return None
 
 
-def _build_search_queries(exc: BaseException, code: str, abaqus_version: str = "") -> list[str]:
-    """Generate web search queries tailored to the exception type."""
-    queries: list[str] = []
-    base = "Abaqus Python API"
-
-    if isinstance(exc, AttributeError):
-        attr = getattr(exc, "name", "") or ""
-        obj_type = type(getattr(exc, "obj", "")).__name__
-        if attr:
-            queries.append("%s %s %s method" % (base, obj_type, attr))
-            queries.append("abaqus %s python scripting %s" % (obj_type, attr))
-
-    elif isinstance(exc, KeyError):
-        key = exc.args[0] if exc.args else ""
-        queries.append("%s key name %s" % (base, key))
-        queries.append("abaqus dictionary key naming convention")
-
-    elif isinstance(exc, NameError):
-        name = getattr(exc, "name", "") or ""
-        if name:
-            queries.append("%s %s import" % (base, name))
-            queries.append("abaqus python %s undefined" % name)
-
-    elif isinstance(exc, TypeError):
-        func = _extract_func_name(exc)
-        if func:
-            queries.append("%s %s signature parameters" % (base, func))
-            queries.append("abaqus %s arguments" % func)
-
-    queries.append("%s scripting guide" % base)
-    if abaqus_version:
-        queries = [q + " " + abaqus_version for q in queries]
-    return queries
+def _extract_code_excerpt(code: str, lineno: int | None, radius: int = 2) -> str | None:
+    if lineno is None:
+        return None
+    lines = code.splitlines()
+    if not lines:
+        return None
+    index = max(0, lineno - 1)
+    start = max(0, index - radius)
+    end = min(len(lines), index + radius + 1)
+    excerpt_lines: list[str] = []
+    for i in range(start, end):
+        prefix = ">>" if i == index else "  "
+        excerpt_lines.append("%s %4d | %s" % (prefix, i + 1, lines[i]))
+    return "\n".join(excerpt_lines)
 
 
-def _get_abaqus_version() -> str:
-    """Best-effort Abaqus version string from the running session."""
+def _resolve_simple_expr(expr: str, namespace: dict[str, Any]) -> Any:
+    """Resolve simple name/attribute/subscript expressions without executing calls."""
+
+    def _eval_node(node: ast.AST) -> Any:
+        if isinstance(node, ast.Name):
+            return namespace[node.id]
+        if isinstance(node, ast.Attribute):
+            return getattr(_eval_node(node.value), node.attr)
+        if isinstance(node, ast.Subscript):
+            base = _eval_node(node.value)
+            key = ast.literal_eval(node.slice)
+            return base[key]
+        raise ValueError("unsupported expression node")
+
+    parsed = ast.parse(expr, mode="eval")
+    return _eval_node(parsed.body)
+
+
+def _extract_call_target(code: str, lineno: int | None) -> str | None:
+    if lineno is None:
+        return None
     try:
-        from abaqus import session as _session  # type: ignore
-        ver = getattr(_session, "version", None)
-        if ver:
-            return "Abaqus " + str(ver)
+        lines = code.splitlines()
+        if lineno - 1 < 0 or lineno - 1 >= len(lines):
+            return None
+        node = ast.parse(lines[lineno - 1], mode="exec")
     except Exception:
-        pass
-    return ""
+        return None
+    for item in ast.walk(node):
+        if isinstance(item, ast.Call):
+            return _node_source(item.func)
+    return None
 
 
-def _format_execution_error(code: str, exc: BaseException) -> dict[str, Any]:
+def _summarize_mapping_keys(mapping_obj: Any, missing_key: Any) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "available_keys_sample": [],
+        "possible_keys": [],
+    }
+    keys_method = getattr(mapping_obj, "keys", None)
+    if not callable(keys_method):
+        return result
+    try:
+        scanned_keys = list(keys_method())
+    except Exception:
+        return result
+
+    key_texts = [str(k) for k in scanned_keys]
+    result["available_keys_sample"] = key_texts
+
+    if missing_key is not None:
+        try:
+            near = difflib.get_close_matches(str(missing_key), key_texts, n=8, cutoff=0.45)
+            result["possible_keys"] = near
+        except Exception:
+            pass
+    return result
+
+
+def _summarize_object_members(obj: Any, missing_attr: str | None) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "possible_members": [],
+    }
+    try:
+        members = sorted([name for name in dir(obj) if not name.startswith("_")])
+    except Exception:
+        return result
+
+    if missing_attr:
+        try:
+            result["possible_members"] = difflib.get_close_matches(missing_attr, members, n=10, cutoff=0.45)
+        except Exception:
+            pass
+    return result
+
+
+def _summarize_callable(target_expr: str | None, namespace: dict[str, Any]) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "call_target": target_expr,
+        "callable_doc_excerpt": None,
+    }
+    if not target_expr:
+        return summary
+    try:
+        target = _resolve_simple_expr(target_expr, namespace)
+    except Exception:
+        return summary
+
+    try:
+        doc = inspect.getdoc(target) or ""
+        summary["callable_doc_excerpt"] = doc[:400] if doc else None
+    except Exception:
+        summary["callable_doc_excerpt"] = None
+    return summary
+
+
+def _format_execution_error(code: str, exc: BaseException, namespace: dict[str, Any] | None = None) -> dict[str, Any]:
     tb_str = traceback.format_exc()
     tb_lines = [l for l in tb_str.strip().splitlines() if l.strip()]
     core_error = tb_lines[-1] if tb_lines else str(exc)
     error_type = f"{type(exc).__module__}.{type(exc).__name__}"
-    abaqus_version = _get_abaqus_version()
     lineno = _extract_tb_lineno(exc)
+    code_excerpt = _extract_code_excerpt(code, lineno)
 
     if isinstance(exc, KeyError):
         missing_key = exc.args[0] if exc.args else None
         parent_path = _find_subscript_parent(code, missing_key, lineno)
-        inspect_target = parent_path or "<parent object>"
-        suggestion = (
-            "Dictionary key not found. [MANDATORY ACTION]: "
-            "Extract the parent dictionary path and call `abaqus_inspect_object` "
-            "on %s to check valid keys."
-        ) % inspect_target
-        recovery = {
+        recovery: dict[str, Any] = {
             "missing_key": _jsonable(missing_key),
-            "inspect_object_path": parent_path,
-            "suggested_tool": "abaqus_inspect_object",
+            "parent_object_path": parent_path,
         }
+        if parent_path and namespace is not None:
+            try:
+                parent_obj = _resolve_simple_expr(parent_path, namespace)
+                recovery.update(_summarize_mapping_keys(parent_obj, missing_key))
+            except Exception:
+                pass
     elif isinstance(exc, AttributeError):
         missing_attr = getattr(exc, "name", None)
         source_obj = getattr(exc, "obj", None)
         object_type = type(source_obj).__name__ if source_obj is not None else None
         parent_path = _find_attribute_parent(code, missing_attr) if missing_attr else None
-        if parent_path:
-            suggestion = (
-                "Method/attribute '%s' not found. [MANDATORY ACTION]: "
-                "Call `abaqus_inspect_object` on %s to check valid methods and attributes."
-            ) % (missing_attr, parent_path)
-        else:
-            suggestion = (
-                "Method/attribute '%s' not found. [MANDATORY ACTION]: "
-                "Extract the object path and call `abaqus_inspect_object` "
-                "to check valid methods and attributes."
-            ) % (missing_attr or "<unknown>")
         recovery = {
             "missing_attribute": missing_attr,
             "object_type": object_type,
-            "inspect_object_path": parent_path,
-            "suggested_tool": "abaqus_inspect_object",
+            "parent_object_path": parent_path,
         }
+        if source_obj is not None:
+            try:
+                recovery.update(_summarize_object_members(source_obj, missing_attr))
+            except Exception:
+                pass
     elif isinstance(exc, NameError):
-        missing_name = getattr(exc, "name", None)
-        suggestion = (
-            "Variable '%s' undefined. Check imports "
-            "(e.g., `from abaqus import *` or `from abaqusConstants import *`)."
-        ) % (missing_name or "<unknown>")
-        recovery = {
-            "missing_variable": missing_name,
-            "suggested_fix": "Add missing import or define the variable.",
-            "suggested_tool": "abaqus_inspect_object",
-        }
+        recovery = {"missing_variable": getattr(exc, "name", None)}
     elif isinstance(exc, TypeError):
-        func_name = _extract_func_name(exc)
-        if func_name:
-            suggestion = (
-                "Invalid arguments for '%s'. Review its parameter types "
-                "in the Abaqus Python API."
-            ) % func_name
-        else:
-            suggestion = (
-                "Invalid parameter type. Review standard Abaqus API arguments."
-            )
-        recovery = {
-            "function": func_name,
-            "suggested_fix": "Check argument types against the Abaqus Python API reference.",
-            "suggested_tool": "abaqus_inspect_object",
-        }
-    elif isinstance(exc, RuntimeError):
-        suggestion = (
-            "Underlying failure. Read the core_error carefully. "
-            "Verify geometry/mesh prerequisites. If unsure of object state, "
-            "use `abaqus_inspect_object`."
-        )
-        recovery = {"suggested_tool": "abaqus_inspect_object"}
+        call_target = _extract_call_target(code, lineno)
+        recovery = {"call_target": call_target}
+        if namespace is not None:
+            recovery.update(_summarize_callable(call_target, namespace))
     else:
-        suggestion = (
-            "Unexpected error. Read the full_traceback for details. "
-            "If unsure of object state, use `abaqus_inspect_object`."
-        )
-        recovery = {"suggested_tool": "abaqus_inspect_object"}
-
-    recovery["search_queries"] = _build_search_queries(exc, code, abaqus_version)
-    recovery["search_hint"] = (
-        "If inspection alone is insufficient, search the web for the queries above "
-        "to find the correct Abaqus API usage, method signatures, or naming conventions."
-    )
+        recovery = {}
 
     return {
         "ok": False,
         "core_error": core_error,
-        "action_suggestion": suggestion,
-        "full_traceback": tb_str,
-        "submitted_code": code[:2000],
-        "error": core_error,
         "error_type": error_type,
+        "error_line": lineno,
+        "code_excerpt": code_excerpt,
         "recovery": recovery,
     }
 
@@ -306,22 +326,12 @@ def _execute(code: str) -> dict[str, Any]:
                 compiled = compile(parsed, "<abaqus-mcp>", "eval")
                 returned = eval(compiled, namespace, namespace)
         except Exception as exc:
-            response = _format_execution_error(code, exc)
-            response.update(
-                {
-                    "mode": mode,
-                    "stdout": stdout.getvalue(),
-                    "stderr": stderr.getvalue(),
-                }
-            )
+            response = _format_execution_error(code, exc, namespace)
             return response
 
     return {
-        "mode": mode,
         "ok": True,
         "return_value": _jsonable(returned),
-        "stdout": stdout.getvalue(),
-        "stderr": stderr.getvalue(),
     }
 
 

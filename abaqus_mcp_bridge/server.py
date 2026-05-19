@@ -1,8 +1,7 @@
 """MCP stdio server that forwards Python execution requests to Abaqus.
 
-Provides high-level tools for model inspection, job management, ODB post-processing,
-and viewport capture - all implemented as Python code templates executed via the
-generic `run_python` tool. No changes to the socket protocol are needed.
+Core tools: ping, run_python — plus viewport capture and ODB metadata.
+Most debugging should come from run_python's structured error payload.
 """
 
 from __future__ import annotations
@@ -46,18 +45,33 @@ DEFAULT_HOST = os.environ.get("ABAQUS_MCP_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("ABAQUS_MCP_PORT", "48152"))
 DEFAULT_TIMEOUT = float(os.environ.get("ABAQUS_MCP_TIMEOUT", "60"))
 
-INSTRUCTIONS = """You are controlling a live Abaqus/CAE session via MCP tools.
+INSTRUCTIONS = """You are an elite simulation engineer controlling a live Abaqus/CAE session via MCP tools.
+Your goal is to build robust, highly stable, and production-grade finite element models.
 
-MANDATORY RULES:
-1. INTENT DECLARATION: Before every run_python call, output a sentence: "I will now [action] to [purpose]."
-2. CHUNKING: Never write the full script at once. Execute in stages: (A) Geometry & Mesh → (B) Materials & Sections → (C) Assembly & Steps → (D) Loads & BCs. Pause after each, summarize, and ask the user: "Should I proceed to the next stage?"
-3. NO GUESSING: If unsure about any Abaqus API method, attribute, or key — call inspect first. Never guess.
-4. UI HANDOFF: Do NOT write complex findAt coordinate logic for selecting faces/edges/vertices. Stop and ask the user to create the Set/Surface in the Abaqus GUI, then continue with the exact name.
-5. ERROR RECOVERY: When run_python returns "ok": False, read core_error and action_suggestion, call inspect if suggested, rewrite based on facts — no apology, no filler.
-6. WEB-ASSISTED RECOVERY: If the `search_queries` field is present in the recovery metadata and inspection alone is insufficient, use web search with those queries (include the Abaqus version) to find the correct API usage, method signatures, or naming conventions. Combine documentation findings with local inspection results.
-7. WORKING DIRECTORY: Before building a new model, ask the user if they want to change the working directory.
-8. JOB SUBMISSION: Before calling submit_job, call ping to get cpu_count. Tell the user how many cores are available and ask how many they want to use — do NOT assume all cores. Also ask about num_gpus. Do not submit without num_cpus set.
-CODE CONVENTIONS: Use `from abaqus import *` and `from abaqusConstants import *`. Set `result = {...}` to return data. Always wrap in try/except."""
+CORE SIMULATION RULES:
+1. SEMANTIC GEOMETRY (Golden Rule): Better not use raw coordinates or `findAt()` to assign boundary conditions, sections, or loads.
+    - Immediately after creating a part or feature, grab its geometry using robust methods:
+      * `getByBoundingBox(xMin, yMin, zMin, xMax, yMax, zMax)`
+      * `getByBoundingCylinder(...)`
+      * Topological filtering (e.g., `part.faces[0:1]`, `part.edges.findAt(...)` only for static boundaries).
+    - Wrap the grabbed geometry into named Sets (for cells/nodes/vertices) or Surfaces (for faces/edges) IMMEDIATELY.
+    - All subsequent steps (meshing, section assignments, interactions, loads, and BCs) MUST reference these semantic names (e.g., `region=part.sets['Set-Name']` or `surface=instance.surfaces['Surf-Name']`).
+
+2. DYNAMIC CHUNKING: Do not write massive scripts that perform modeling, meshing, solver submission, and post-processing all at once.
+    - Divide your work into logical validation milestones (e.g., Phase 1: Base Geometry & Named Sets -> Phase 2: Assembly, Step & Mesh -> Phase 3: Physics, Loads & Submission).
+    - Verify each phase's correctness via execution before proceeding. No rigid linear chains — adapt the phase size to the task's complexity.
+
+3. DOCKING & DIAGNOSTICS (No Guessing & Web Search): Never guess Abaqus API methods, attributes, or signatures.
+    - If live local reflection is insufficient, or if you encounter complex API signature mismatches, ALWAYS call the web search tool (including the term 'Abaqus' and target versions, e.g., 'Abaqus 2024 Python API ...') to find official documentation, forum examples, or method signatures.
+
+
+4. WORKING DIRECTORY & PERSISTENCE: Every Abaqus analysis generates a massive number of solver files (.inp, .odb, .sta, .msg, etc.).
+    - Before writing any model, ALWAYS query or set a clean working directory (using the `set_workdir` tool or standard Python `os.chdir` at the start of your script). Do NOT let Abaqus run in default system paths, which causes permission errors and directory pollution.
+    - Periodically save the database (.cae file) to the working directory using `mdb.saveAs(pathName=...)` (e.g., `mdb.saveAs(pathName='D:/temp/My-Model.cae')`). Never leave the CAE session unsaved, ensuring persistence against solver crashes.
+
+5. CONCISE PAIR-PROGRAMMING: Avoid robotic headers, repetitive intent declarations, and verbose apologies. Keep explanations technical, clear, and direct. Focus on finite element modeling best practices.
+
+"""
 
 mcp = FastMCP("abaqus-control-mcp", instructions=INSTRUCTIONS)
 
@@ -70,37 +84,6 @@ def _client(timeout: float | None = None) -> AbaqusBridgeClient:
     )
 
 
-_VIEWPORT_CODE_TEMPLATE = r"""
-import os, tempfile, base64
-from abaqus import session
-
-vp_name = __VP__
-fmt = __FMT__
-
-result = {}
-try:
-    if not vp_name or vp_name not in session.viewports.keys():
-        vp_name = session.currentViewportName
-    vp = session.viewports[vp_name]
-    tmp = tempfile.NamedTemporaryFile(suffix='.' + fmt.lower(), delete=False)
-    tmp.close()
-    vp.view.print(filename=tmp.name, format=fmt.upper(), options='')
-    with open(tmp.name, 'rb') as f:
-        b64 = base64.b64encode(f.read()).decode('ascii')
-    os.unlink(tmp.name)
-    result = {
-        'success': True,
-        'viewport': vp_name,
-        'format': fmt.lower(),
-        'image_base64': b64,
-        'size_bytes': len(b64) * 3 // 4,
-    }
-except Exception as e:
-    import traceback
-    result = {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
-"""
-
-
 # ---------------------------------------------------------------------------
 # Generic python execution wrapper
 # ---------------------------------------------------------------------------
@@ -109,88 +92,6 @@ except Exception as e:
 async def _exec(code: str, timeout: float | None = None) -> dict[str, Any]:
     """Execute Python code in Abaqus and return the result dict."""
     return await anyio.to_thread.run_sync(_client(timeout).execute, code)
-
-
-def _inspect_code(object_path: str, depth: int = 1) -> str:
-    """Build Abaqus-side code for introspecting an object path."""
-    depth = max(1, min(depth, 3))
-    return r"""
-from abaqus import mdb, session
-
-object_path = __OBJECT_PATH__
-max_depth = __DEPTH__
-
-def _jsonable_key(key):
-    try:
-        import json
-        json.dumps(key, ensure_ascii=False)
-        return key
-    except Exception:
-        return repr(key)
-
-def _safe_repr(val):
-    try:
-        r = repr(val)
-        return r[:200] if len(r) > 200 else r
-    except Exception:
-        return "<%s>" % type(val).__name__
-
-def _inspect_one(obj, current_depth):
-    keys_method = getattr(obj, "keys", None)
-    if callable(keys_method):
-        info = {
-            "kind": "mapping",
-            "type": type(obj).__name__,
-            "keys": [_jsonable_key(key) for key in keys_method()],
-        }
-        if current_depth < max_depth:
-            children = {}
-            for key in list(keys_method())[:20]:
-                try:
-                    child = obj[key]
-                    children[_jsonable_key(key)] = _inspect_one(child, current_depth + 1)
-                except Exception as e:
-                    children[_jsonable_key(key)] = {"error": str(e)}
-            info["children"] = children
-        return info
-    else:
-        attrs = [name for name in dir(obj) if not name.startswith("_")]
-        info = {
-            "kind": "object",
-            "type": type(obj).__name__,
-            "attributes": attrs,
-        }
-        if current_depth < max_depth:
-            children = {}
-            for attr in attrs[:20]:
-                try:
-                    child = getattr(obj, attr)
-                    if callable(child):
-                        children[attr] = {"kind": "callable", "type": type(child).__name__}
-                    else:
-                        children[attr] = _inspect_one(child, current_depth + 1)
-                except Exception as e:
-                    children[attr] = {"error": str(e)}
-            info["children"] = children
-        return info
-
-try:
-    obj = eval(object_path, {"__builtins__": {}}, {"mdb": mdb, "session": session})
-    info = _inspect_one(obj, 1)
-    info["ok"] = True
-    info["object_path"] = object_path
-    result = info
-except Exception as exc:
-    result = {
-        "ok": False,
-        "object_path": object_path,
-        "error": "Inspection failed for %r: %s: %s" % (
-            object_path,
-            type(exc).__name__,
-            str(exc),
-        ),
-    }
-""".replace("__OBJECT_PATH__", json.dumps(object_path)).replace("__DEPTH__", str(depth))
 
 
 # ---------------------------------------------------------------------------
@@ -233,30 +134,11 @@ async def run_python(code: str, timeout: float | None = None) -> dict[str, Any]:
 
     Single-line expressions are evaluated and their value returned.
     Multi-line code is executed; set a variable named ``result`` to return data.
-    Stdout, stderr, and any error details are included in the response.
+    Stdout, stderr, traceback, error line, and code excerpts are included in the response.
     """
     if not code.strip():
         raise ValueError("code must not be empty")
     return await _exec(code, timeout)
-
-
-@mcp.tool()
-async def inspect(object_path: str, depth: int = 1, timeout: float | None = None) -> dict[str, Any]:
-    """Inspect an Abaqus object path and return available keys or public attributes.
-
-    Args:
-        object_path: Python expression evaluating to an Abaqus object.
-        depth: How many levels deep to inspect (1-3, default 1). depth=2 shows
-            child objects inline, reducing the number of follow-up inspect calls.
-
-    Examples:
-        - ``mdb.models['Model-1'].parts``
-        - ``session.viewports``
-        - ``mdb.models['Model-1'].rootAssembly``
-    """
-    if not object_path.strip():
-        raise ValueError("object_path must not be empty")
-    return await _exec(_inspect_code(object_path.strip(), depth), timeout)
 
 
 @mcp.tool()
@@ -289,131 +171,89 @@ except Exception as e:
     return await _exec(code, timeout)
 
 
-# ---------------------------------------------------------------------------
-# Advanced query tools
-# ---------------------------------------------------------------------------
-
-
 @mcp.tool()
-async def get_model_info(timeout: float | None = None) -> dict[str, Any]:
-    """Get detailed information about all models in the current Abaqus session.
-
-    Returns parts, materials, steps, loads, BCs, interactions, and assembly instances
-    for each model, plus current viewport info.
-    """
-    code = r"""
-from abaqus import mdb, session
-info = {'models': [], 'viewports': []}
-for model_name in mdb.models.keys():
-    model = mdb.models[model_name]
-    m = {'name': model_name, 'parts': list(model.parts.keys()),
-         'materials': list(model.materials.keys()),
-         'steps': list(model.steps.keys()),
-         'loads': list(model.loads.keys()) if hasattr(model, 'loads') else [],
-         'bcs': list(model.boundaryConditions.keys()) if hasattr(model, 'boundaryConditions') else [],
-         'interactions': list(model.interactions.keys()) if hasattr(model, 'interactions') else []}
-    if hasattr(model, 'rootAssembly') and model.rootAssembly is not None:
-        if hasattr(model.rootAssembly, 'instances'):
-            m['assembly'] = list(model.rootAssembly.instances.keys())
-    info['models'].append(m)
-if hasattr(session, 'viewports'):
-    info['viewports'] = list(session.viewports.keys())
-if hasattr(session, 'currentViewportName'):
-    info['currentViewport'] = session.currentViewportName
-info['workingDirectory'] = __import__('os').getcwd()
-result = info
-"""
-    return await _exec(code, timeout)
-
-
-@mcp.tool()
-async def list_jobs(timeout: float | None = None) -> dict[str, Any]:
-    """List all analysis jobs defined in the current Abaqus session with their status."""
-    code = r"""
-from abaqus import mdb
-jobs = []
-for name in mdb.jobs.keys():
-    job = mdb.jobs[name]
-    j = {'name': name}
-    for attr in ('status', 'type', 'model', 'description', 'numCpus', 'numDomains', 'memory', 'explicitPrecision'):
-        try:
-            val = getattr(job, attr, None)
-            if val is not None:
-                j[attr] = str(val)
-        except Exception:
-            pass
-    jobs.append(j)
-result = {'jobs': jobs}
-"""
-    return await _exec(code, timeout)
-
-
-@mcp.tool()
-async def submit_job(job_name: str, num_cpus: int | None = None, num_gpus: int = 0, timeout: float | None = None) -> dict[str, Any]:
-    """Submit an Abaqus analysis job by name and wait for completion.
-
-    The job must already be defined in `mdb.jobs`. Default timeout is 600 s.
+async def monitor_job_status(job_name: str = "", timeout: float | None = None) -> dict[str, Any]:
+    """Monitor Abaqus job status and optional OS-level progress from .sta/.msg files.
 
     Args:
-        job_name: Name of a job already defined in mdb.jobs.
-        num_cpus: Number of CPUs. Leave unset or call ping first to detect.
-        num_gpus: Number of GPUs (default 0).
+        job_name: If provided, read [JobName].sta and [JobName].msg in the working
+            directory to extract recent progress and diagnostics. If empty, list
+            all jobs defined in the current Abaqus session.
     """
-    cpus_val = num_cpus if num_cpus is not None else -1
     code = r"""
+import os
+import re
 from abaqus import mdb
+
 job_name = __JOB_NAME__
-if job_name not in mdb.jobs:
-    result = {'success': False, 'error': 'Job "%s" not found' % job_name}
-else:
-    job = mdb.jobs[job_name]
-    nc = __NUM_CPUS__
-    if nc > 0:
-        job.setValues(numCpus=nc, numDomains=nc)
-    ng = __NUM_GPUS__
-    if ng > 0:
-        try:
-            job.setValues(numGPUs=ng)
-        except TypeError:
-            pass
-    job.submit(consistencyChecking=False)
-    job.waitForCompletion()
-    status = str(getattr(job, 'status', 'UNKNOWN'))
-    result = {
-        'success': True,
-        'job': job_name,
-        'status': status,
-        'model': str(getattr(mdb.jobs[job_name], 'model', '')),
-    }
+
+def _tail_lines(path, count):
     try:
-        result['odb'] = str(job.name) + '.odb'
+        with open(path, 'r') as f:
+            lines = f.read().splitlines()
+        if count <= 0:
+            return []
+        return lines[-count:]
     except Exception:
-        pass
-""".replace("__JOB_NAME__", json.dumps(job_name)) \
-   .replace("__NUM_CPUS__", str(cpus_val)) \
-   .replace("__NUM_GPUS__", str(num_gpus))
-    return await _exec(code, timeout or 600.0)
+        return []
 
+def _grep_tail(path, patterns, limit):
+    try:
+        rx = re.compile('|'.join(patterns))
+        matches = []
+        with open(path, 'r') as f:
+            for line in f:
+                if rx.search(line):
+                    matches.append(line.rstrip())
+        return matches[-limit:] if limit > 0 else matches
+    except Exception:
+        return []
 
-# ---------------------------------------------------------------------------
-# ODB post-processing tools
-# ---------------------------------------------------------------------------
+result = {}
+if not job_name:
+    jobs = []
+    for name in mdb.jobs.keys():
+        job = mdb.jobs[name]
+        j = {'name': name}
+        for attr in ('status', 'type', 'model', 'description', 'numCpus', 'numDomains', 'memory', 'explicitPrecision'):
+            try:
+                val = getattr(job, attr, None)
+                if val is not None:
+                    j[attr] = str(val)
+            except Exception:
+                pass
+        jobs.append(j)
+    result = {'jobs': jobs}
+else:
+    sta_path = os.path.join(os.getcwd(), job_name + '.sta')
+    msg_path = os.path.join(os.getcwd(), job_name + '.msg')
+    progress_lines = _tail_lines(sta_path, 5)
+    diagnostic_lines = _grep_tail(msg_path, [r'^\*\*\*ERROR', r'^\*\*\*WARNING'], 10)
+    result = {
+        'job_name': job_name,
+        'sta_path': sta_path,
+        'msg_path': msg_path,
+        'progress_tail': progress_lines,
+        'diagnostics_tail': diagnostic_lines,
+    }
+""".replace("__JOB_NAME__", json.dumps(job_name.strip()))
+    return await _exec(code, timeout)
 
 
 @mcp.tool()
-async def get_odb_info(odb_path: str, timeout: float | None = None) -> dict[str, Any]:
+async def inspect_odb(odb_path: str, timeout: float | None = None) -> dict[str, Any]:
     """Open an ODB file (read-only) and return its metadata.
 
-    Returns steps (with frame count and total time), parts, instances, section points,
-    and available field/history output variables.
+    Returns steps (with sliced frames and total time), parts, instances, section points,
+    and available field/history output variables with positions and components.
     """
     code = r"""
 from abaqus import mdb
 from odbAccess import openOdb
-import json
 
 odb_path = __ODB_PATH__
 info = {}
+odb = None
 try:
     odb = openOdb(path=odb_path, readOnly=True)
     info['title'] = str(getattr(odb, 'title', ''))
@@ -421,12 +261,50 @@ try:
     info['parts'] = list(odb.parts.keys()) if hasattr(odb, 'parts') else []
     info['instances'] = list(odb.rootAssembly.instances.keys()) if hasattr(odb, 'rootAssembly') else []
     steps = []
+
+    def _slice_frames(frames):
+        count = len(frames)
+        if count <= 5:
+            return list(frames)
+        idxs = [0]
+        for k in range(1, 4):
+            idxs.append(int(round(k * (count - 1) / 4.0)))
+        idxs.append(count - 1)
+        seen = set()
+        uniq = []
+        for i in idxs:
+            if i not in seen and 0 <= i < count:
+                uniq.append(i)
+                seen.add(i)
+        return [frames[i] for i in uniq]
+
+    def _field_meta(field_output):
+        meta = {}
+        try:
+            meta['position'] = str(getattr(field_output, 'position', ''))
+        except Exception:
+            meta['position'] = ''
+        comps = []
+        try:
+            comps = list(getattr(field_output, 'componentLabels', []) or [])
+        except Exception:
+            comps = []
+        try:
+            invariants = list(getattr(field_output, 'validInvariants', []) or [])
+        except Exception:
+            invariants = []
+        meta['components'] = comps + [str(x) for x in invariants if str(x) not in comps]
+        return meta
+
     for sname in odb.steps.keys():
         s = odb.steps[sname]
         frames = []
-        for f in s.frames:
-            frames.append({'frameId': f.frameId, 'frameValue': f.frameValue,
-                           'description': str(getattr(f, 'description', ''))})
+        for f in _slice_frames(s.frames):
+            frames.append({
+                'frameId': f.frameId,
+                'frameValue': f.frameValue,
+                'description': str(getattr(f, 'description', '')),
+            })
         step_info = {
             'name': sname,
             'procedure': str(getattr(s, 'procedure', '')),
@@ -434,13 +312,15 @@ try:
             'frames': frames,
             'description': str(getattr(s, 'description', '')),
         }
-        # field outputs available in first frame
         if s.frames:
             try:
                 frame = s.frames[0]
                 fov = []
                 for desc in frame.fieldOutputs.keys():
-                    fov.append(desc)
+                    fo = frame.fieldOutputs[desc]
+                    meta = _field_meta(fo)
+                    meta['name'] = desc
+                    fov.append(meta)
                 step_info['fieldOutputs'] = fov
             except Exception:
                 step_info['fieldOutputs'] = []
@@ -454,167 +334,17 @@ try:
                 step_info['historyOutputs'] = []
         steps.append(step_info)
     info['steps'] = steps
-    odb.close()
     result = {'success': True, 'data': info}
 except Exception as e:
     import traceback
     result = {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
+finally:
+    try:
+        if odb is not None:
+            odb.close()
+    except Exception:
+        pass
 """.replace("__ODB_PATH__", json.dumps(odb_path))
-    return await _exec(code, timeout or 60.0)
-
-
-@mcp.tool()
-async def get_field_output(
-    odb_path: str,
-    step_name: str = "",
-    frame_index: int = -1,
-    output_variable: str = "S",
-    instance_name: str = "",
-    position: str = "INTEGRATION_POINT",
-    timeout: float | None = None,
-) -> dict[str, Any]:
-    """Extract field output data from an ODB file.
-
-    Args:
-        odb_path: Full path to the .odb file.
-        step_name: Step name (empty = last step).
-        frame_index: Frame index (-1 = last frame).
-        output_variable: Field output variable name, e.g. "S" (stress), "E" (strain),
-            "U" (displacement), "RF" (reaction force), "MISESMAX" etc.
-        instance_name: Instance name (empty = first instance).
-        position: Output position - "INTEGRATION_POINT", "NODAL", "ELEMENT_NODAL", etc.
-    Returns summary statistics (min, max, mean) and a sample of values.
-    """
-    code = r"""
-from odbAccess import openOdb
-
-odb_path = __ODB_PATH__
-step_name = __STEP_NAME__
-frame_index = __FRAME_INDEX__
-output_var = __OV__
-inst_name = __INST_NAME__
-pos_name = __POS__
-
-result = {}
-try:
-    odb = openOdb(path=odb_path, readOnly=True)
-    # Determine step
-    if not step_name or step_name not in odb.steps.keys():
-        step_name = list(odb.steps.keys())[-1]
-    step = odb.steps[step_name]
-    # Determine frame
-    if frame_index < 0 or frame_index >= len(step.frames):
-        frame_index = len(step.frames) - 1
-    frame = step.frames[frame_index]
-    # Get field output
-    fo = frame.fieldOutputs[output_var]
-    # Filter by instance if needed
-    if inst_name:
-        values = [v for v in fo.values if v.instance.name == inst_name]
-    else:
-        values = list(fo.values)
-    # Compute stats
-    magnitudes = []
-    sample = []
-    for v in values:
-        try:
-            mag = (v.magnitude if hasattr(v, 'magnitude') and v.magnitude is not None
-                   else float(v.data))
-            magnitudes.append(mag)
-            if len(sample) < 10:
-                el_label = getattr(v, 'elementLabel', getattr(v, 'nodeLabel', 0))
-                sample.append({'label': el_label, 'magnitude': round(mag, 4),
-                               'data': str(v.data)[:80]})
-        except Exception:
-            pass
-    import statistics
-    result = {
-        'success': True,
-        'step': step_name,
-        'frame': frame_index,
-        'frameValue': frame.frameValue,
-        'variable': output_var,
-        'position': str(getattr(fo, 'position', '')),
-        'numValues': len(values),
-        'min': round(min(magnitudes), 4) if magnitudes else None,
-        'max': round(max(magnitudes), 4) if magnitudes else None,
-        'mean': round(statistics.mean(magnitudes), 4) if magnitudes else None,
-        'sample': sample,
-    }
-    odb.close()
-except Exception as e:
-    import traceback
-    result = {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
-""".replace("__ODB_PATH__", json.dumps(odb_path)) \
-      .replace("__STEP_NAME__", json.dumps(step_name)) \
-      .replace("__FRAME_INDEX__", str(int(frame_index))) \
-      .replace("__OV__", json.dumps(output_variable)) \
-      .replace("__INST_NAME__", json.dumps(instance_name)) \
-      .replace("__POS__", json.dumps(position))
-    return await _exec(code, timeout or 60.0)
-
-
-@mcp.tool()
-async def get_history_output(
-    odb_path: str,
-    step_name: str = "",
-    history_output_name: str = "",
-    timeout: float | None = None,
-) -> dict[str, Any]:
-    """Extract history output data from an ODB file.
-
-    Useful for time-history curves (displacement, stress at specific points,
-    reaction forces, energy, etc.). If history_output_name is empty, lists all
-    available history outputs.
-    """
-    code = r"""
-from odbAccess import openOdb
-
-odb_path = __ODB_PATH__
-step_name = __STEP__
-ho_name = __HO__
-
-result = {}
-try:
-    odb = openOdb(path=odb_path, readOnly=True)
-    if not step_name or step_name not in odb.steps.keys():
-        step_name = list(odb.steps.keys())[-1]
-    step = odb.steps[step_name]
-
-    if not ho_name:
-        # List all available history outputs
-        regions = {}
-        for hk in step.historyRegions.keys():
-            region = step.historyRegions[hk]
-            outputs = list(region.historyOutputs.keys())
-            regions[hk] = outputs
-        result = {'success': True, 'step': step_name, 'historyRegions': regions}
-    else:
-        # Extract data for specific history output
-        data = []
-        for hk in step.historyRegions.keys():
-            region = step.historyRegions[hk]
-            if ho_name in region.historyOutputs:
-                ho = region.historyOutputs[ho_name]
-                for point_data in ho.data:  # list of tuples (time, value)
-                    data.append({'time': round(point_data[0], 6), 'value': round(point_data[1], 6)})
-        magnitudes = [d['value'] for d in data] if data else []
-        result = {
-            'success': True,
-            'step': step_name,
-            'historyOutput': ho_name,
-            'numPoints': len(data),
-            'min': round(min(magnitudes), 4) if magnitudes else None,
-            'max': round(max(magnitudes), 4) if magnitudes else None,
-            'data': data[:1000],  # limit to first 1000 points
-        }
-    odb.close()
-except Exception as e:
-    import traceback
-    result = {'success': False, 'error': str(e), 'traceback': traceback.format_exc()}
-""".replace("__ODB_PATH__", json.dumps(odb_path)) \
-      .replace("__STEP__", json.dumps(step_name)) \
-      .replace("__HO__", json.dumps(history_output_name))
     return await _exec(code, timeout or 60.0)
 
 
@@ -672,9 +402,9 @@ except Exception as e:
 # ---------------------------------------------------------------------------
 
 
-@mcp.resource("abaqus://status")
-def abaqus_status() -> str:
-    """Current Abaqus MCP plugin status (running / stopped / ready)."""
+@mcp.resource("abaqus://session-telemetry")
+def session_telemetry() -> str:
+    """Retrieve active Abaqus/CAE session telemetry and environment metadata."""
     import json as _json
     try:
         r = _client(5.0).ping()
@@ -697,62 +427,7 @@ def abaqus_agent_instructions() -> str:
     return INSTRUCTIONS
 
 
-# ---------------------------------------------------------------------------
-# MCP Prompts - guide LLM behaviour
-# ---------------------------------------------------------------------------
 
-
-@mcp.prompt()
-def abaqus_scripting_strategy() -> str:
-    """Best practices for writing Abaqus scripts that will be sent to an active
-    Abaqus/CAE session via the `run_python` tool."""
-    return r"""**Engineering AI SOP for Abaqus:**
-
-1. **Check Working Directory First:** If building a new model from scratch, you MUST first ask the user whether they want to change the working directory. Use `set_workdir` if they confirm. Files (CAE, ODB, etc.) will be saved to the current working directory.
-2. **No Blind Guessing:** If you are unsure of a method, attribute, or dictionary key in the Abaqus API, you MUST use `inspect` first.
-3. **Step-by-Step Execution (Chunking):** Never write the entire script at once. Work in stages: (A) Geometry & Mesh -> (B) Materials & Sections -> (C) Assembly & Steps -> (D) Loads & BCs. After executing the code for one stage, STOP. Summarize what was created, and explicitly ask the user: "Should I proceed to the next stage?"
-4. **UI Handoff for Complex Geometry:** Do NOT attempt to write complex `findAt` coordinate logic to select faces, edges, or vertices for Sets/Surfaces. It is highly error-prone，unless absolutely necessary. Instead, STOP execution and instruct the user: "Please manually create a Set/Surface for the required boundary condition in the Abaqus GUI. Let me know the exact name of the Set/Surface once you are done, and I will continue with the script."
-
-## Error Recovery Standard Operating Procedure (SOP)
-When `run_python` returns `"ok": False`, you MUST strictly follow this protocol:
-1. **Read the Error:** Analyze the `core_error` and the `action_suggestion` in the JSON response.
-2. **Execute the Suggestion:** Strictly follow the `action_suggestion`. If it mandates using `inspect`, you MUST call that tool immediately to inspect the parent object or dictionary. Use `depth=2` when you need to see nested structure. DO NOT guess or blind-retry without inspecting first.
-3. **Web-Assisted Recovery:** If the `search_queries` field is present in the `recovery` metadata and inspection alone does not clearly resolve the error, use web search with those queries (include the Abaqus version) to find the correct API usage, method signatures, or naming conventions. Combine documentation findings with local inspection results.
-4. **Silent Recovery:** DO NOT apologize to the user. DO NOT output conversational filler like "I'm sorry, let me fix that." Just silently trigger the tool call to gather the right info, rewrite the code based on the factual inspection, and execute again.
-"""
-
-
-@mcp.prompt()
-def abaqus_workflow_create_and_run() -> str:
-    """End-to-end workflow for creating a model, running an analysis, and post-processing results."""
-    return r"""End-to-end Abaqus workflow via MCP:
-
-1. **Check session**: `ping` - see existing models, check if clean.
-2. **Set working directory (if needed)**: If building a new model from scratch, ask the user whether to change the working directory. Use `set_workdir(path="C:/your/project")` to set it. CAE/ODB files will be saved there.
-3. **Create model**: Write Python code with `from abaqus import mdb, session` and `from abaqusConstants import *`. Create parts, materials, sections, assembly, steps, loads, BCs, mesh, and job.
-4. **Submit job**: `submit_job(job_name="YourJob")` - waits for completion.
-5. **Inspect ODB**: `get_odb_info(odb_path="path/to/YourJob.odb")` to see available steps/frames/variables.
-6. **Extract results**: `get_field_output(odb_path="...", output_variable="S")` for stress, `"U"` for displacement, etc.
-7. **Capture viewport**: `capture_viewport()` to see visual results.
-
-Always tell the user what you're doing at each step."""
-
-
-@mcp.prompt()
-def abaqus_odb_postprocessing() -> str:
-    """Guide for extracting and visualizing results from Abaqus ODB files."""
-    return r"""ODB post-processing via Abaqus MCP:
-
-1. **Open and inspect**: `get_odb_info(odb_path)` to see steps, frames, instances, and available field/history variables.
-2. **Field output**: Use `get_field_output(odb_path, step_name, frame_index, output_variable)`. Common variables:
-   - `"S"` - Stress tensor components / von Mises
-   - `"U"` - Displacement (U1, U2, U3, magnitude)
-   - `"E"` - Strain tensor
-   - `"RF"` - Reaction force
-   - `"MISESMAX"` - Max von Mises (if defined)
-3. **History output**: Use `get_history_output(odb_path, step_name)` first to list available outputs, then call with a specific `history_output_name` to get time-history data.
-4. **Viewport**: Capture deformed shape / contour plots with `capture_viewport()` after setting the displayed object in Abaqus.
-5. **Limitations**: The bridge returns summary statistics (min/max/mean) and samples - not full datasets. For detailed analysis, use Abaqus/Viewer locally."""
 
 
 def main() -> None:

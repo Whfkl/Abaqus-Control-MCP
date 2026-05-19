@@ -5,19 +5,30 @@
 
 [English](README.md) | 中文
 
-> **像聊天一样控制 Abaqus。** 描述你要做的有限元分析——几何、材料、载荷——AI 直接在活跃的 Abaqus/CAE 里执行代码。不用写脚本，不用中转文件，不用开 `noGUI`。
+> **让 AI 可以直接驱动 Abaqus。** 只要描述你想要的模型——几何、材料、载荷、分析步——AI 就能在你的 Abaqus/CAE 会话里执行对应操作。
 
-**Abaqus Control MCP** 把 Claude、Cursor 等 MCP 兼容的 AI 工具接入运行中的 Abaqus/CAE。你跟 AI 对话，AI 操控 Abaqus，模型实时变化。
+**Abaqus Control MCP** 把 Claude、Cursor 以及其他 MCP 兼容客户端连接到正在运行的 Abaqus/CAE。你描述任务，AI 把它转成 Abaqus 操作，模型会实时更新。
+
+> **旧版 Abaqus** 自带 Python 2。如果你的 Abaqus 使用 Python 2，请使用 [Python 2 兼容版本](https://github.com/hp283260133-bit/Abaqus-Control-MCP-abaqus2021)。
 
 ### 为什么选它？
 
-- **实时 GUI 反馈** — 代码跑在你的活跃 Abaqus 窗口里，每建一个零件、每画一次网格都立即可见。
-- **零中间文件** — 结果通过 TCP 桥接直接返回，不产生散落一地的 `.py` 和 `.odb`。
-- **完整 API 访问** — `mdb`、`session` 和全部 Abaqus Python 模块全部可用，没有沙箱，没有限制。
-- **本地隔离** — 桥接只监听 `127.0.0.1:48152`，所有数据不出你的工作站。
-- **标准 MCP 协议** — 支持 Claude Code、Claude Desktop、Cursor 和所有 MCP 兼容客户端，丢个配置就能用。
+- **直接在 GUI 中工作** — 操作会发生在当前 Abaqus 窗口中，几何、网格和结果都能即时看到。
+- **流畅建模体验** — 直接通过桥接与 Abaqus 内核交互，让建模过程更顺手。
+- **mdb、session、odb 以及其余 Python API 都可直接使用** — 让 AI 充分发挥能力。
+- **保持会话可交互** — 工程师可以随时查看建模进展，无需中断会话。
+- **仅本地运行** — 桥接只监听 `127.0.0.1:48152`，数据不会离开你的机器。
+- **兼容常见 MCP 客户端** — Claude Code、Claude Desktop、Cursor 等都可以用同一套配置接入。
 
 ## 安装配置
+
+**AI agent 一键安装**
+
+如果你的 AI agent 支持自然语言安装，只需输入：
+
+```text
+安装 https://github.com/Whfkl/Abaqus-Control-MCP
+```
 
 **1. 安装包**
 
@@ -76,12 +87,9 @@ Claude Code 会在会话启动时自动拉起 MCP 服务，无需手动启动。
   "permissions": {
     "allow": [
       "mcp__abaqus__ping",
-      "mcp__abaqus__inspect",
-      "mcp__abaqus__get_model_info",
-      "mcp__abaqus__list_jobs",
-      "mcp__abaqus__get_odb_info",
-      "mcp__abaqus__get_field_output",
-      "mcp__abaqus__get_history_output"
+      "mcp__abaqus__run_python",
+      "mcp__abaqus__monitor_job_status",
+      "mcp__abaqus__inspect_odb"
     ]
   }
 }
@@ -101,23 +109,12 @@ abaqus-control-check
 |------|------|
 | `ping` | 检查连接 + 会话状态（模型、视口、PID） |
 | `run_python` | 在 Abaqus 内核中执行任意 Python 代码 |
-| `inspect` | 检查对象路径，返回键名或公开属性 |
-| `get_model_info` | 列出零件、材料、分析步、载荷、边界条件 |
-| `list_jobs` | 列出所有作业及状态、类型、模型 |
-| `submit_job` | 提交作业并等待完成 |
-| `get_odb_info` | 只读打开 ODB：分析步、帧、可用变量 |
-| `get_field_output` | 提取场输出（S/E/U/RF），返回最小值/最大值/平均值 |
-| `get_history_output` | 提取 ODB 历史输出时程曲线 |
+| `monitor_job_status` | 列出作业或读取 `.sta`/`.msg` 获取进度与诊断 |
+| `inspect_odb` | 只读打开 ODB：帧裁剪，变量含分量信息 |
 | `capture_viewport` | 截取视口图像为 base64（PNG/JPEG/TIFF/SVG） |
 | `set_workdir` | 修改 Abaqus 工作目录 |
 
-## MCP 提示
-
-| 提示 | 用途 |
-|------|------|
-| `abaqus_scripting_strategy` | Abaqus 脚本最佳实践 + 错误恢复 SOP |
-| `abaqus_workflow_create_and_run` | 端到端：建模 → 提交 → 后处理 |
-| `abaqus_odb_postprocessing` | ODB 结果提取与解读指南 |
+> 建模、提交作业、提取场/历史输出——全部通过 `run_python` 完成。它的错误返回会包含 traceback、错误行号、代码片段和修复提示。
 
 ## 环境变量
 
@@ -148,10 +145,6 @@ print(result['return_value'])  # ['Model-1', ...]
 | 连接超时 | 先在 Abaqus 内启动插件，**再**启动 MCP 服务 |
 | 模型未出现在 GUI 中 | 运行 `abaqus-control-check`，确认 `"thread": "MainThread"` |
 | Claude Code 看不到 MCP 工具 | 1. 运行 `claude mcp list` 检查 `abaqus` 是否已注册。2. 如果未列出，运行 `claude mcp add -s user -e ABAQUS_MCP_HOST=127.0.0.1 -e ABAQUS_MCP_PORT=48152 -e ABAQUS_MCP_TIMEOUT=120 abaqus /absolute/path/to/abaqus-control-mcp-server`。3. 改完配置后重启 Claude Code。 |
-
-## 安全
-
-仅监听 `127.0.0.1`。以 Abaqus 进程同等权限执行 Python。日志写入系统临时目录。分享前请检查输出中是否包含本机路径或模型名称。
 
 ## 许可证
 
