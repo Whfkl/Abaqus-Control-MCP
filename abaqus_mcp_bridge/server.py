@@ -367,6 +367,7 @@ async def capture_viewport(
     code = r"""
 import os, tempfile, base64
 from abaqus import session
+import abaqusConstants as C
 
 vp_name = __VP__
 fmt = __FMT__
@@ -378,7 +379,8 @@ try:
     vp = session.viewports[vp_name]
     tmp = tempfile.NamedTemporaryFile(suffix='.' + fmt.lower(), delete=False)
     tmp.close()
-    vp.view.print(filename=tmp.name, format=fmt.upper(), options='')
+    fmt_const = getattr(C, fmt.upper())
+    session.printToFile(fileName=tmp.name, format=fmt_const, canvasObjects=(vp,))
     with open(tmp.name, 'rb') as f:
         b64 = base64.b64encode(f.read()).decode('ascii')
     os.unlink(tmp.name)
