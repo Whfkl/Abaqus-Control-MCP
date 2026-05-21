@@ -62,40 +62,28 @@ Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
 
 **4. Configure your MCP client**
 
-`abaqus-control-setup` automatically registers the MCP server with Claude Code (runs `claude mcp add` under the hood). If you skipped that or need to re-register:
-
-```bash
-# Global (all projects)
-claude mcp add -s user -e ABAQUS_MCP_HOST=127.0.0.1 \
-  -e ABAQUS_MCP_PORT=48152 -e ABAQUS_MCP_TIMEOUT=120 \
-  abaqus /absolute/path/to/abaqus-control-mcp-server
-
-# Current project only
-claude mcp add -s local -e ABAQUS_MCP_HOST=127.0.0.1 \
-  -e ABAQUS_MCP_PORT=48152 -e ABAQUS_MCP_TIMEOUT=120 \
-  abaqus /absolute/path/to/abaqus-control-mcp-server
-```
-
-> Use the absolute path to the executable — Claude Code's subprocess may not have your shell PATH. Run `which abaqus-control-mcp-server` (or `where` on Windows) to find it.
-
-Claude Code starts the MCP server automatically when you open a session — no need to start it manually.
-
-To reduce permission prompts, whitelist read-only tools in `.claude/settings.json`:
+`abaqus-control-setup` automatically registers the MCP server with Claude Code (runs `claude mcp add` under the hood). If you skipped that or need to re-register, add the following to your MCP config file:
 
 ```json
 {
-  "permissions": {
-    "allow": [
-      "mcp__abaqus__ping",
-      "mcp__abaqus__run_python",
-      "mcp__abaqus__monitor_job_status",
-      "mcp__abaqus__inspect_odb"
-    ]
+  "mcpServers": {
+    "abaqus": {
+      "command": "abaqus-control-mcp-server",
+      "env": {
+        "ABAQUS_MCP_HOST": "127.0.0.1",
+        "ABAQUS_MCP_PORT": "48152",
+        "ABAQUS_MCP_TIMEOUT": "120"
+      }
+    }
   }
 }
 ```
 
-For **Cursor** or other MCP clients, add the server config to their respective settings files. The MCP server uses standard stdio transport.
+> Claude Code: `~/.claude/.mcp.json` (global) or `.mcp.json` in your project root.
+> Cursor: `.cursor/mcp.json` in your project root.
+> Other MCP clients: see their respective docs for config file location.
+
+Claude Code starts the MCP server automatically when you open a session — no need to start it manually.
 
 **5. Verify**
 
@@ -144,7 +132,7 @@ print(result['return_value'])  # ['Model-1', ...]
 | `Module abaqusGui can only be used in Abaqus/CAE GUI` | Use **Plug-ins** menu, not File → Run Script |
 | Connection timed out | Start the Abaqus plugin **before** the MCP server |
 | Model doesn't appear in GUI | Run `abaqus-control-check` — verify `"thread": "MainThread"` |
-| Claude Code doesn't see MCP tools | 1. Run `claude mcp list` to check if `abaqus` is registered. 2. If not listed, run `claude mcp add -s user -e ABAQUS_MCP_HOST=127.0.0.1 -e ABAQUS_MCP_PORT=48152 -e ABAQUS_MCP_TIMEOUT=120 abaqus /absolute/path/to/abaqus-control-mcp-server`. 3. Restart Claude Code after any config change. |
+| Claude Code doesn't see MCP tools | 1. Run `claude mcp list` to check if `abaqus` is registered. 2. If not listed, add the MCP config as described in Step 4. 3. Restart Claude Code after any config change. |
 
 ## License
 
