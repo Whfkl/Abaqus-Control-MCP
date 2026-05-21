@@ -94,6 +94,103 @@ async def _exec(code: str, timeout: float | None = None) -> dict[str, Any]:
     return await anyio.to_thread.run_sync(_client(timeout).execute, code)
 
 
+def _format_error_to_markdown(result: dict[str, Any]) -> str:
+    """Render a crash payload into a compact, highly readable Markdown diagnostic panel."""
+    parts: list[str] = []
+
+    error_type = result.get("error_type", "Unknown")
+    short_type = error_type.rsplit(".", 1)[-1] if "." in error_type else error_type
+    core_error = result.get("core_error", "Unknown error")
+    error_line = result.get("error_line")
+
+    # Extract message from core_error to avoid prefix duplication
+    prefix = f"{short_type}:"
+    if core_error.startswith(prefix):
+        msg = core_error[len(prefix):].strip()
+    else:
+        msg = core_error
+
+    location = f" at line {error_line}" if error_line else ""
+    parts.append(f"{short_type}{location}: {msg}")
+
+    # Indented recovery details
+    recovery = result.get("recovery") or {}
+    if recovery:
+        # KeyError details
+        if "missing_key" in recovery:
+            if recovery.get("parent_object_path"):
+                parts.append(f"  Container: {recovery['parent_object_path']}")
+            if "available_keys_sample" in recovery:
+                sample = recovery["available_keys_sample"]
+                if isinstance(sample, list):
+                    if len(sample) > 20:
+                        sample = sample[:20] + ["..."]
+                    parts.append(f"  Available: {sample}")
+            if recovery.get("possible_keys"):
+                parts.append(f"  Similar: {recovery['possible_keys']}")
+
+        # AttributeError details
+        elif "missing_attribute" in recovery:
+            parts.append(f"  Missing Attribute: {recovery['missing_attribute']}")
+            if recovery.get("object_type"):
+                parts.append(f"  Object Type: {recovery['object_type']}")
+            if recovery.get("parent_object_path"):
+                parts.append(f"  Object Path: {recovery['parent_object_path']}")
+            if recovery.get("possible_members"):
+                parts.append(f"  Similar: {recovery['possible_members']}")
+
+        # NameError details
+        elif "missing_variable" in recovery:
+            parts.append(f"  Undefined Variable: {recovery['missing_variable']}")
+
+        # SyntaxError details
+        elif "syntax_line" in recovery:
+            if recovery.get("syntax_offset"):
+                parts.append(f"  Syntax Error offset: {recovery['syntax_offset']}")
+            if recovery.get("syntax_text"):
+                parts.append(f"  Problem text: {recovery['syntax_text'].strip()}")
+
+        # TypeError or fallback callable details
+        elif "callable_signature" in recovery or "call_target" in recovery:
+            if recovery.get("call_target"):
+                parts.append(f"  Call Target: {recovery['call_target']}")
+            if recovery.get("callable_signature"):
+                parts.append(f"  Expected Signature: {recovery['callable_signature']}")
+            if recovery.get("callable_summary"):
+                parts.append(f"  Description: {recovery['callable_summary']}")
+
+    # Failed code line
+    code_excerpt = result.get("code_excerpt")
+    if code_excerpt:
+        failed_line = None
+        for line in code_excerpt.splitlines():
+            if line.startswith(">>"):
+                parts_line = line.split("|", 1)
+                if len(parts_line) == 2:
+                    failed_line = parts_line[1].strip()
+                break
+        if failed_line:
+            parts.append(f"  Code: {failed_line}")
+
+    # stdout/stderr summary & content
+    stdout = result.get("stdout", "").strip()
+    stderr = result.get("stderr", "").strip()
+    if stdout:
+        lines_count = len(stdout.splitlines())
+        if lines_count <= 3:
+            parts.append(f"  stdout: {stdout}")
+        else:
+            parts.append(f"  stdout: (captured, {lines_count} lines)")
+    if stderr:
+        lines_count = len(stderr.splitlines())
+        if lines_count <= 3:
+            parts.append(f"  stderr: {stderr}")
+        else:
+            parts.append(f"  stderr: (captured, {lines_count} lines)")
+
+    return "\n".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # Core tools
 # ---------------------------------------------------------------------------
@@ -133,7 +230,10 @@ async def run_python(code: str, timeout: float | None = None) -> dict[str, Any]:
     """
     if not code.strip():
         raise ValueError("code must not be empty")
-    return await _exec(code, timeout)
+    result = await _exec(code, timeout)
+    if not result.get("ok", False):
+        raise RuntimeError(_format_error_to_markdown(result))
+    return result
 
 
 @mcp.tool()

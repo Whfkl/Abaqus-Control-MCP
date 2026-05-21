@@ -32,6 +32,10 @@
 
 **1. 安装包**
 
+你可以通过远程 Git 直接安装，或者在克隆仓库后在本地目录安装。
+
+**方式 A：远程 Git 安装 (直接安装)**
+
 `uv`（推荐）：
 
 ```bash
@@ -44,15 +48,47 @@ uv tool install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
 pip install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
 ```
 
-依赖写在 `pyproject.toml` 中，不需要 `requirements.txt`。两种方式都会安装四个 CLI 命令（`abaqus-control-mcp-server`、`abaqus-control-check`、`abaqus-control-doctor`、`abaqus-control-setup`）。
+---
+
+**方式 B：本地目录安装 (克隆仓库后在项目根目录下)**
+
+*   **普通本地安装**
+
+    `uv`（推荐）：
+    ```bash
+    uv tool install .
+    ```
+    或 `pip`：
+    ```bash
+    pip install .
+    ```
+
+*   **开发模式 (可编辑安装)**
+    如果你想修改源码并让修改实时生效：
+
+    `uv`（推荐）：
+    ```bash
+    uv tool install --editable .
+    ```
+    或 `pip`：
+    ```bash
+    pip install -e .
+    ```
+
+依赖已声明在 `pyproject.toml` 中，不需要 `requirements.txt`。上述任何一种方式都会安装四个 CLI 命令（`abaqus-control-mcp-server`、`abaqus-control-check`、`abaqus-control-doctor`、`abaqus-control-setup`）。
 
 **2. 安装 GUI 插件**
+
+运行以下命令自动安装：
 
 ```bash
 abaqus-control-setup
 ```
 
-将 `gui_plugin.py` 复制到 `~/abaqus_plugins/`。可通过 `ABAQUS_MCP_PLUGIN_DIR` 环境变量覆盖目标目录。
+或者，你也可以**手动**将项目源码中的 `abaqus_mcp_bridge/gui_plugin.py` 复制到 Abaqus 插件目录（通常为 `~/abaqus_plugins/`）。
+
+> [!NOTE]
+> 自动命令或手动安装的目标目录都可以通过设置 `ABAQUS_MCP_PLUGIN_DIR` 环境变量进行自定义覆盖。
 
 **3. 启动 Abaqus/CAE，激活插件**
 
@@ -65,7 +101,7 @@ Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
 在 `~/.claude.json` 的 `mcpServers` 节点下添加：
 
 ```json
-"abaqus": {
+"abaqus-control-mcp v1.0": {
   "command": "abaqus-control-mcp-server",
   "env": {
     "ABAQUS_MCP_HOST": "127.0.0.1",

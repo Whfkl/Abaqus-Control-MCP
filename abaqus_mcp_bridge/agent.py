@@ -13,6 +13,7 @@ import io
 import inspect
 import json
 import platform
+import re
 import socketserver
 import sys
 import threading
@@ -57,6 +58,8 @@ def _key_literal(node: ast.AST) -> Any:
 
 def _extract_tb_lineno(exc: BaseException) -> int | None:
     """Extract the line number where the exception was raised from its traceback."""
+    if hasattr(exc, "lineno") and getattr(exc, "lineno") is not None:
+        return getattr(exc, "lineno")
     tb = exc.__traceback__
     while tb is not None:
         if tb.tb_frame.f_code.co_filename == "<abaqus-mcp>":
@@ -76,6 +79,15 @@ def _find_subscript_parent(code: str, missing_key: Any, lineno: int | None = Non
             src = _node_source(node.value)
             if src is not None:
                 candidates.append((getattr(node, "lineno", 0), src))
+    # Fallback: if no candidates and lineno is provided, match any Subscript on the failed line
+    if not candidates and lineno is not None:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Subscript):
+                node_lineno = getattr(node, "lineno", None)
+                if node_lineno == lineno:
+                    src = _node_source(node.value)
+                    if src is not None:
+                        candidates.append((node_lineno, src))
     if not candidates:
         return None
     if lineno is not None:
@@ -97,7 +109,6 @@ def _find_attribute_parent(code: str, missing_attr: str) -> str | None:
 
 def _extract_func_name(exc: BaseException) -> str | None:
     """Extract function/method name from a TypeError message."""
-    import re
     msg = str(exc)
     m = re.search(r"([\w.]+)\(\)", msg)
     if m:
@@ -134,7 +145,20 @@ def _resolve_simple_expr(expr: str, namespace: dict[str, Any]) -> Any:
             return getattr(_eval_node(node.value), node.attr)
         if isinstance(node, ast.Subscript):
             base = _eval_node(node.value)
-            key = ast.literal_eval(node.slice)
+            try:
+                key = ast.literal_eval(node.slice)
+            except Exception:
+                if isinstance(node.slice, ast.Name):
+                    key = namespace[node.slice.id]
+                elif isinstance(node.slice, ast.Index):  # pragma: no cover - compatibility for older ASTs
+                    if isinstance(node.slice.value, ast.Constant):
+                        key = node.slice.value.value
+                    elif isinstance(node.slice.value, ast.Name):
+                        key = namespace[node.slice.value.id]
+                    else:
+                        raise
+                else:
+                    raise
             return base[key]
         raise ValueError("unsupported expression node")
 
@@ -200,10 +224,36 @@ def _summarize_object_members(obj: Any, missing_attr: str | None) -> dict[str, A
     return result
 
 
+def _extract_signature_from_docstring(doc: str, target_name: str) -> str | None:
+    """Search the docstring for target_name(...) and balance parentheses to handle multiline signatures."""
+    pattern = r"\b" + re.escape(target_name) + r"\s*\("
+    match = re.search(pattern, doc)
+    if not match:
+        return None
+    start_pos = match.start()
+    open_paren_idx = match.end() - 1
+    paren_count = 0
+    end_pos = -1
+    for i in range(open_paren_idx, min(open_paren_idx + 1000, len(doc))):
+        char = doc[i]
+        if char == "(":
+            paren_count += 1
+        elif char == ")":
+            paren_count -= 1
+            if paren_count == 0:
+                end_pos = i + 1
+                break
+    if end_pos != -1:
+        sig_candidate = doc[start_pos:end_pos]
+        return " ".join(sig_candidate.split())
+    return None
+
+
 def _summarize_callable(target_expr: str | None, namespace: dict[str, Any]) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "call_target": target_expr,
-        "callable_doc_excerpt": None,
+        "callable_signature": None,
+        "callable_summary": None,
     }
     if not target_expr:
         return summary
@@ -212,11 +262,42 @@ def _summarize_callable(target_expr: str | None, namespace: dict[str, Any]) -> d
     except Exception:
         return summary
 
+    target_name = getattr(target, "__name__", "function")
     try:
-        doc = inspect.getdoc(target) or ""
-        summary["callable_doc_excerpt"] = doc[:400] if doc else None
+        sig = inspect.signature(target)
+        sig_str = f"{target_name}{sig}"
     except Exception:
-        summary["callable_doc_excerpt"] = None
+        sig_str = f"{target_name}(...)"
+
+    doc = None
+    try:
+        doc = inspect.getdoc(target)
+    except Exception:
+        pass
+    if not doc:
+        try:
+            doc = getattr(target, "__doc__", None)
+        except Exception:
+            pass
+
+    if doc:
+        try:
+            lines = doc.strip().splitlines()
+            if lines:
+                first_line = lines[0].strip()
+                if " -> " in first_line:
+                    first_line = first_line.split(" -> ", 1)[1].strip()
+                summary["callable_summary"] = first_line if first_line else None
+            if sig_str.endswith("(...)"):
+                extracted_sig = _extract_signature_from_docstring(doc, target_name)
+                if extracted_sig:
+                    sig_str = extracted_sig
+        except Exception:
+            pass
+
+    if len(sig_str) > 1000:
+        sig_str = sig_str[:997] + "..."
+    summary["callable_signature"] = sig_str
     return summary
 
 
@@ -224,13 +305,67 @@ def _format_execution_error(code: str, exc: BaseException, namespace: dict[str, 
     tb_str = traceback.format_exc()
     tb_lines = [l for l in tb_str.strip().splitlines() if l.strip()]
     core_error = tb_lines[-1] if tb_lines else str(exc)
-    error_type = f"{type(exc).__module__}.{type(exc).__name__}"
+    exc_type_name = type(exc).__name__
+    error_type = f"{type(exc).__module__}.{exc_type_name}"
     lineno = _extract_tb_lineno(exc)
     code_excerpt = _extract_code_excerpt(code, lineno)
+    traceback_tail = tb_lines[-5:] if len(tb_lines) > 5 else tb_lines
 
-    if isinstance(exc, KeyError):
-        missing_key = exc.args[0] if exc.args else None
-        parent_path = _find_subscript_parent(code, missing_key, lineno)
+    is_key_error = isinstance(exc, KeyError) or exc_type_name.endswith("KeyError")
+    is_attribute_error = isinstance(exc, AttributeError) or exc_type_name.endswith("AttributeError")
+    is_name_error = exc_type_name == "NameError"
+    is_type_error = isinstance(exc, TypeError) or exc_type_name.endswith("TypeError")
+    is_syntax_error = isinstance(exc, SyntaxError) or exc_type_name.endswith("SyntaxError")
+
+    detected_missing_key = None
+    detected_parent_path = None
+    if namespace is not None and lineno is not None:
+        try:
+            lines = code.splitlines()
+            if 0 <= lineno - 1 < len(lines):
+                line_code = lines[lineno - 1]
+                tree = ast.parse(line_code)
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Subscript):
+                        val_key = None
+                        if isinstance(node.slice, ast.Constant):
+                            val_key = node.slice.value
+                        elif isinstance(node.slice, ast.Name):
+                            val_key = namespace.get(node.slice.id)
+                        elif isinstance(node.slice, ast.Index):  # pragma: no cover - compatibility for older ASTs
+                            if isinstance(node.slice.value, ast.Constant):
+                                val_key = node.slice.value.value
+                            elif isinstance(node.slice.value, ast.Name):
+                                val_key = namespace.get(node.slice.value.id)
+                        
+                        if val_key is not None:
+                            p_path = _node_source(node.value)
+                            if p_path:
+                                try:
+                                    p_obj = _resolve_simple_expr(p_path, namespace)
+                                    keys_method = getattr(p_obj, "keys", None)
+                                    if callable(keys_method):
+                                        try:
+                                            try:
+                                                keys_list = list(keys_method())
+                                                is_missing = val_key not in keys_list
+                                            except Exception:
+                                                is_missing = val_key not in p_obj
+                                            if is_missing:
+                                                is_key_error = True
+                                                detected_missing_key = val_key
+                                                detected_parent_path = p_path
+                                                break
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    pass
+        except Exception:
+            pass
+
+    if is_key_error:
+        missing_key = detected_missing_key if detected_missing_key is not None else (exc.args[0] if exc.args else None)
+        parent_path = detected_parent_path if detected_parent_path is not None else _find_subscript_parent(code, missing_key, lineno)
         recovery: dict[str, Any] = {
             "missing_key": _jsonable(missing_key),
             "parent_object_path": parent_path,
@@ -241,7 +376,7 @@ def _format_execution_error(code: str, exc: BaseException, namespace: dict[str, 
                 recovery.update(_summarize_mapping_keys(parent_obj, missing_key))
             except Exception:
                 pass
-    elif isinstance(exc, AttributeError):
+    elif is_attribute_error:
         missing_attr = getattr(exc, "name", None)
         source_obj = getattr(exc, "obj", None)
         object_type = type(source_obj).__name__ if source_obj is not None else None
@@ -256,9 +391,15 @@ def _format_execution_error(code: str, exc: BaseException, namespace: dict[str, 
                 recovery.update(_summarize_object_members(source_obj, missing_attr))
             except Exception:
                 pass
-    elif isinstance(exc, NameError):
+    elif is_name_error:
         recovery = {"missing_variable": getattr(exc, "name", None)}
-    elif isinstance(exc, TypeError):
+    elif is_syntax_error:
+        recovery = {
+            "syntax_line": getattr(exc, "lineno", None),
+            "syntax_offset": getattr(exc, "offset", None),
+            "syntax_text": getattr(exc, "text", None),
+        }
+    elif is_type_error:
         call_target = _extract_call_target(code, lineno)
         recovery = {"call_target": call_target}
         if namespace is not None:
@@ -266,12 +407,19 @@ def _format_execution_error(code: str, exc: BaseException, namespace: dict[str, 
     else:
         recovery = {}
 
+    # Fallback: if no recovery hints, try to reflect the call target
+    if not recovery and namespace is not None:
+        call_target = _extract_call_target(code, lineno)
+        if call_target:
+            recovery = _summarize_callable(call_target, namespace)
+
     return {
         "ok": False,
         "core_error": core_error,
         "error_type": error_type,
         "error_line": lineno,
         "code_excerpt": code_excerpt,
+        "traceback_tail": traceback_tail,
         "recovery": recovery,
     }
 
@@ -298,12 +446,15 @@ def _send_message(request: socketserver.BaseRequestHandler, payload: dict[str, A
     request.request.sendall(data + b"\n")
 
 
+_MAX_OUTPUT = 1_000
+
+
 def _execute(code: str) -> dict[str, Any]:
     stdout = io.StringIO()
     stderr = io.StringIO()
     namespace = _GLOBALS
     returned = None
-    mode = "exec"
+    error_response = None
 
     try:
         from abaqus import mdb, session  # type: ignore
@@ -322,16 +473,28 @@ def _execute(code: str) -> dict[str, Any]:
                 exec(compiled, namespace, namespace)
                 returned = namespace.get("result")
             else:
-                mode = "eval"
                 compiled = compile(parsed, "<abaqus-mcp>", "eval")
                 returned = eval(compiled, namespace, namespace)
         except Exception as exc:
-            response = _format_execution_error(code, exc, namespace)
-            return response
+            error_response = _format_execution_error(code, exc, namespace)
+
+    captured_stdout = stdout.getvalue()
+    captured_stderr = stderr.getvalue()
+    if len(captured_stdout) > _MAX_OUTPUT:
+        captured_stdout = captured_stdout[:_MAX_OUTPUT] + "\n... (truncated, total %d chars)" % len(captured_stdout)
+    if len(captured_stderr) > _MAX_OUTPUT:
+        captured_stderr = captured_stderr[:_MAX_OUTPUT] + "\n... (truncated, total %d chars)" % len(captured_stderr)
+
+    if error_response is not None:
+        error_response["stdout"] = captured_stdout
+        error_response["stderr"] = captured_stderr
+        return error_response
 
     return {
         "ok": True,
         "return_value": _jsonable(returned),
+        "stdout": captured_stdout,
+        "stderr": captured_stderr,
     }
 
 

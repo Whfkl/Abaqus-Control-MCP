@@ -1,6 +1,6 @@
 [project]
 name = "abaqus-control-mcp"
-version = "0.1.0"
+version = "1.0"
 description = "Local MCP bridge for real-time control of Abaqus/CAE through Claude, Cursor, and other MCP clients."
 readme = "README.md"
 requires-python = ">=3.10"

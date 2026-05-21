@@ -32,6 +32,10 @@ install https://github.com/Whfkl/Abaqus-Control-MCP
 
 **1. Install the package**
 
+You can install the package directly via Git, or from a cloned repository in your local directory.
+
+**Option A: Remote Git Install (direct install)**
+
 `uv` (recommended):
 
 ```bash
@@ -44,15 +48,47 @@ Or `pip`:
 pip install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
 ```
 
-Dependencies are declared in `pyproject.toml` — no `requirements.txt` needed. Both methods install four CLI commands (`abaqus-control-mcp-server`, `abaqus-control-check`, `abaqus-control-doctor`, `abaqus-control-setup`).
+---
+
+**Option B: Local Directory Install (run inside the cloned project root)**
+
+*   **Standard Local Install**
+
+    `uv` (recommended):
+    ```bash
+    uv tool install .
+    ```
+    Or `pip`:
+    ```bash
+    pip install .
+    ```
+
+*   **Development Mode (editable install)**
+    If you plan to modify the source code and have changes apply dynamically:
+
+    `uv` (recommended):
+    ```bash
+    uv tool install --editable .
+    ```
+    Or `pip`:
+    ```bash
+    pip install -e .
+    ```
+
+Dependencies are declared in `pyproject.toml` — no `requirements.txt` needed. Any of the methods above will install the four CLI commands (`abaqus-control-mcp-server`, `abaqus-control-check`, `abaqus-control-doctor`, `abaqus-control-setup`) to your global environment or active virtual environment.
 
 **2. Install the GUI plugin**
+
+Run the following command to install automatically:
 
 ```bash
 abaqus-control-setup
 ```
 
-This copies `gui_plugin.py` to `~/abaqus_plugins/`. Set `ABAQUS_MCP_PLUGIN_DIR` to override.
+Alternatively, you can **manually** copy `abaqus_mcp_bridge/gui_plugin.py` from the project source to your Abaqus plugins directory (typically `~/abaqus_plugins/`).
+
+> [!NOTE]
+> You can override the target folder for both automatic and manual installations by setting the `ABAQUS_MCP_PLUGIN_DIR` environment variable.
 
 **3. Start Abaqus/CAE, activate the plugin**
 
@@ -65,7 +101,7 @@ Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
 Add the following entry to the `mcpServers` section in `~/.claude.json`:
 
 ```json
-"abaqus": {
+"abaqus-control-mcp v1.0": {
   "command": "abaqus-control-mcp-server",
   "env": {
     "ABAQUS_MCP_HOST": "127.0.0.1",
