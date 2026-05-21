@@ -7,7 +7,7 @@
 
 > **让 AI 可以直接驱动 Abaqus。** 只要描述你想要的模型——几何、材料、载荷、分析步——AI 就能在你的 Abaqus/CAE 会话里执行对应操作。
 
-**Abaqus Control MCP** 把 Claude、Cursor 以及其他 MCP 兼容客户端连接到正在运行的 Abaqus/CAE。你描述任务，AI 把它转成 Abaqus 操作，模型会实时更新。
+**Abaqus Control MCP** 把 Claude Code、Codex、Antigravity 以及其他 MCP 兼容客户端连接到正在运行的 Abaqus/CAE。你描述任务，AI 把它转成 Abaqus 操作，模型会实时更新。
 
 > **旧版 Abaqus** 自带 Python 2。如果你的 Abaqus 使用 Python 2，请使用 [Python 2 兼容版本](https://github.com/hp283260133-bit/Abaqus-Control-MCP-abaqus2021)。
 
@@ -18,7 +18,7 @@
 - **mdb、session、odb 以及其余 Python API 都可直接使用** — 让 AI 充分发挥能力。
 - **保持会话可交互** — 工程师可以随时查看建模进展，无需中断会话。
 - **仅本地运行** — 桥接只监听 `127.0.0.1:48152`，数据不会离开你的机器。
-- **兼容常见 MCP 客户端** — Claude Code、Claude Desktop、Cursor 等都可以用同一套配置接入。
+- **兼容常见 MCP 客户端** — Claude Code、Codex、Antigravity 等均可接入。
 
 ## 安装配置
 
@@ -62,26 +62,20 @@ Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
 
 **4. 配置 MCP 客户端**
 
-`abaqus-control-setup` 会自动注册 MCP 服务器到 Claude Code（底层执行 `claude mcp add`）。如需手动注册，将以下配置添加到对应的 MCP 配置文件中：
+在 `~/.claude.json` 的 `mcpServers` 节点下添加：
 
 ```json
-{
-  "mcpServers": {
-    "abaqus": {
-      "command": "abaqus-control-mcp-server",
-      "env": {
-        "ABAQUS_MCP_HOST": "127.0.0.1",
-        "ABAQUS_MCP_PORT": "48152",
-        "ABAQUS_MCP_TIMEOUT": "120"
-      }
-    }
+"abaqus": {
+  "command": "abaqus-control-mcp-server",
+  "env": {
+    "ABAQUS_MCP_HOST": "127.0.0.1",
+    "ABAQUS_MCP_PORT": "48152",
+    "ABAQUS_MCP_TIMEOUT": "120"
   }
 }
 ```
 
-> Claude Code：`~/.claude/.mcp.json`（全局）或项目根目录的 `.mcp.json`。
-> Cursor：项目根目录的 `.cursor/mcp.json`。
-> 其他 MCP 客户端：参考各自文档确定配置文件位置。
+> 添加到 `~/.claude.json` 的 `mcpServers` 节点下（全局），或对应项目的 `projects.<path>.mcpServers` 下（仅该项目生效）。
 
 Claude Code 会在会话启动时自动拉起 MCP 服务，无需手动启动。
 

@@ -7,7 +7,6 @@ import json
 import os
 import platform
 import shutil
-import subprocess
 import sys
 from importlib import metadata, resources
 from pathlib import Path
@@ -59,60 +58,7 @@ def _static_diagnostics() -> dict[str, Any]:
             "abaqus-control-doctor": _entrypoint_path("abaqus-control-doctor"),
             "abaqus-control-setup": _entrypoint_path("abaqus-control-setup"),
         },
-        "mcp_clients": _mcp_status(),
     }
-
-
-def _register_mcp_claude(scope: str = "user") -> dict[str, Any]:
-    """Register the MCP server with Claude Code via ``claude mcp add``."""
-    claude = shutil.which("claude")
-    if not claude:
-        return {"status": "skipped", "reason": "claude CLI not found on PATH"}
-
-    server_exe = shutil.which("abaqus-control-mcp-server")
-    if not server_exe:
-        return {"status": "skipped", "reason": "abaqus-control-mcp-server not found on PATH"}
-
-    cmd = [
-        claude, "mcp", "add",
-        "-s", scope,
-        "-e", "ABAQUS_MCP_HOST=127.0.0.1",
-        "-e", "ABAQUS_MCP_PORT=48152",
-        "-e", "ABAQUS_MCP_TIMEOUT=120",
-        "abaqus",
-        server_exe,
-    ]
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15,
-        )
-        if result.returncode == 0:
-            return {"status": "registered", "scope": scope, "output": result.stdout.strip()}
-        return {"status": "failed", "returncode": result.returncode, "stderr": result.stderr.strip()}
-    except FileNotFoundError:
-        return {"status": "skipped", "reason": "claude CLI not found"}
-    except subprocess.TimeoutExpired:
-        return {"status": "failed", "reason": "claude mcp add timed out"}
-
-
-def _mcp_status() -> dict[str, Any]:
-    """Check MCP registration status for known clients."""
-    status: dict[str, Any] = {}
-
-    claude = shutil.which("claude")
-    status["claude_cli"] = claude is not None
-    if claude:
-        try:
-            result = subprocess.run(
-                [claude, "mcp", "list"],
-                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
-            )
-            status["claude_mcp_registered"] = "abaqus" in result.stdout.lower()
-            status["claude_mcp_output"] = result.stdout.strip()
-        except Exception:
-            status["claude_mcp_registered"] = None
-
-    return status
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -155,13 +101,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     setup_parser = subparsers.add_parser(
         "setup",
-        help="Install GUI plugin and register MCP server.",
-    )
-    setup_parser.add_argument(
-        "--scope",
-        choices=["user", "project", "skip"],
-        default="user",
-        help="MCP registration scope: 'user' (global), 'project' (current dir), or 'skip' (no registration). Default: user.",
+        help="Install GUI plugin for Abaqus/CAE.",
     )
 
     return parser
@@ -197,8 +137,7 @@ def _doctor_main(args: argparse.Namespace) -> None:
 
 
 def _setup_main(args: argparse.Namespace) -> None:
-    """Copy the Abaqus GUI plugin and optionally register MCP server."""
-    # Step 1: Install GUI plugin
+    """Copy the Abaqus GUI plugin."""
     target_dir = Path(os.environ.get("ABAQUS_MCP_PLUGIN_DIR", Path.home() / "abaqus_plugins"))
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / "abaqus_mcp_gui_plugin.py"
@@ -212,36 +151,9 @@ def _setup_main(args: argparse.Namespace) -> None:
             shutil.copy2(src, target)
             print(f"Installed GUI plugin to: {target}")
 
-    # Step 2: Register MCP server
-    scope = getattr(args, "scope", "user")
-    if scope != "skip":
-        print()
-        print(f"Registering MCP server with Claude Code (scope={scope})...")
-        result = _register_mcp_claude(scope)
-        if result["status"] == "registered":
-            print(f"MCP server registered: {result.get('output', '')}")
-        elif result["status"] == "skipped":
-            print(f"MCP registration skipped: {result['reason']}")
-            _print_manual_mcp_instructions()
-        else:
-            print(f"MCP registration failed: {result.get('stderr', result.get('reason', ''))}")
-            _print_manual_mcp_instructions()
-
     print()
     print("Restart Abaqus/CAE, then activate:")
     print("Plug-ins -> Abaqus-Control-MCP -> Start MCP Bridge")
-
-
-def _print_manual_mcp_instructions() -> None:
-    """Print fallback manual MCP registration instructions."""
-    print()
-    print("To register manually, run:")
-    print("  claude mcp add -s user -e ABAQUS_MCP_HOST=127.0.0.1 \\")
-    print("    -e ABAQUS_MCP_PORT=48152 -e ABAQUS_MCP_TIMEOUT=120 \\")
-    print("    abaqus /absolute/path/to/abaqus-control-mcp-server")
-    print()
-    print("Find the path with: where abaqus-control-mcp-server (Windows)")
-    print("                    which abaqus-control-mcp-server (Linux/macOS)")
 
 
 def main() -> None:

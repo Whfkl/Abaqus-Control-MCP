@@ -7,7 +7,7 @@
 
 > **Let AI drive Abaqus directly.** Describe the model you want — geometry, materials, loads, steps — and let the AI work inside your live Abaqus/CAE session.
 
-**Abaqus Control MCP** connects Claude, Cursor, and any other MCP-compatible client to a running Abaqus/CAE instance. You describe the task, the AI translates it into Abaqus actions, and the model updates in real time.
+**Abaqus Control MCP** connects Claude Code, Codex, Antigravity, and any other MCP-compatible client to a running Abaqus/CAE instance. You describe the task, the AI translates it into Abaqus actions, and the model updates in real time.
 
 > **Older Abaqus versions** ship Python 2. If your Abaqus uses Python 2, use the [Python 2 compatible fork](https://github.com/hp283260133-bit/Abaqus-Control-MCP-abaqus2021) instead.
 
@@ -17,7 +17,7 @@
 - **Full access to Abaqus objects** — `mdb`, `session`, `odb`, and the rest of the Python API are directly available, letting AI do the work.
 - **Keep the session interactive** — engineers can inspect progress at any time without stopping the session.
 - **Stay local** — the bridge listens on `127.0.0.1:48152`, so nothing leaves your machine.
-- **Use any MCP client** — Claude Code, Claude Desktop, Cursor, and other compatible clients can connect with the same setup.
+- **Use any MCP client** — Claude Code, Codex, Antigravity, and other compatible clients can all connect.
 
 
 ## Setup
@@ -62,26 +62,20 @@ Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
 
 **4. Configure your MCP client**
 
-`abaqus-control-setup` automatically registers the MCP server with Claude Code (runs `claude mcp add` under the hood). If you skipped that or need to re-register, add the following to your MCP config file:
+Add the following entry to the `mcpServers` section in `~/.claude.json`:
 
 ```json
-{
-  "mcpServers": {
-    "abaqus": {
-      "command": "abaqus-control-mcp-server",
-      "env": {
-        "ABAQUS_MCP_HOST": "127.0.0.1",
-        "ABAQUS_MCP_PORT": "48152",
-        "ABAQUS_MCP_TIMEOUT": "120"
-      }
-    }
+"abaqus": {
+  "command": "abaqus-control-mcp-server",
+  "env": {
+    "ABAQUS_MCP_HOST": "127.0.0.1",
+    "ABAQUS_MCP_PORT": "48152",
+    "ABAQUS_MCP_TIMEOUT": "120"
   }
 }
 ```
 
-> Claude Code: `~/.claude/.mcp.json` (global) or `.mcp.json` in your project root.
-> Cursor: `.cursor/mcp.json` in your project root.
-> Other MCP clients: see their respective docs for config file location.
+> Add to the `mcpServers` section in `~/.claude.json` (global) or under `projects.<path>.mcpServers` for a specific project.
 
 Claude Code starts the MCP server automatically when you open a session — no need to start it manually.
 
