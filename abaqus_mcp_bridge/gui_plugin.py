@@ -6,6 +6,7 @@ search directory without requiring a source checkout.
 
 from abaqusGui import (
     AFXForm,
+    AFXMode,
     FXMAPFUNC,
     SEL_COMMAND,
     SEL_TIMEOUT,
@@ -533,16 +534,20 @@ class McpGuiActionForm(AFXForm):
         global _DISPATCHER
         AFXForm.__init__(self, owner)
         self.action = action
+        FXMAPFUNC(self, SEL_COMMAND, AFXMode.ID_ACTIVATE, McpGuiActionForm.onCmdActivate)
         FXMAPFUNC(self, SEL_COMMAND, self.ID_START, McpGuiActionForm.onCmdStart)
         FXMAPFUNC(self, SEL_COMMAND, self.ID_STOP, McpGuiActionForm.onCmdStop)
         FXMAPFUNC(self, SEL_TIMEOUT, self.ID_POLL, McpGuiActionForm.onTimeout)
         _DISPATCHER = self
 
-    def getFirstDialog(self):
+    def onCmdActivate(self, sender, sel, ptr):
         if self.action == "start":
-            self.onCmdStart(None, None, None)
+            return self.onCmdStart(sender, sel, ptr)
         elif self.action == "stop":
-            self.onCmdStop(None, None, None)
+            return self.onCmdStop(sender, sel, ptr)
+        return 1
+
+    def getFirstDialog(self):
         return None
 
     def _schedule_poll(self):
@@ -574,8 +579,18 @@ class McpGuiActionForm(AFXForm):
         try:
             message = start_gui_agent()
             self._schedule_poll()
-            _announce(message)
-            _announce("Abaqus MCP GUI plugin log: %s" % LOG_PATH)
+            if "already running" in message:
+                _announce(message)
+            else:
+                banner = (
+                    "\n"
+                    "      ___\n"
+                    "     [o_o]  < Abaqus Control MCP running!\n"
+                    "    /|_|_|\\   Bridge listening on %s:%s\n"
+                    "     |   |\n"
+                ) % (HOST, PORT)
+                _announce(banner)
+                _announce("Abaqus MCP GUI plugin log: %s" % LOG_PATH)
         except Exception as exc:
             message = "Abaqus MCP GUI agent failed: %s" % exc
             _log(message)
