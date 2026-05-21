@@ -157,6 +157,8 @@ print(result['return_value'])  # ['Model-1', ...]
 
 | 问题 | 解决方案 |
 |-------|----------|
+| `WinError 10061` 由于目标计算机积极拒绝，无法连接 | 未在 Abaqus/CAE 中开启桥接服务。请**首先启动 Abaqus/CAE**，并在顶部菜单栏选择 **Plug-ins -> Abaqus-Control-MCP -> Start MCP Bridge** 开启服务，然后再试。 |
+| MCP 客户端提示 `Connection closed` / 崩溃报错 `ModuleNotFoundError: No module named 'pydantic_core.core_schema'` | 这是由于 `uv` 安装工具在默认的 Python 隔离环境（如 Python 3.13）中依赖包（如 `pydantic_core`）编译异常或 DLL 缺失。可以通过强制指定系统上其他的 Python 版本（例如 Python 3.14）重新安装来解决：`uv tool install --force --python 3.14 .` |
 | 找不到 `abaqus-control-mcp-server` | 重新安装或运行 `abaqus-control-doctor` |
 | 服务端无输出 | 正常现象——stdio MCP 服务不向 stdout 输出日志 |
 | `Module abaqusGui can only be used...` | 通过 **Plug-ins** 菜单启动，不要用 File → Run Script |

@@ -211,20 +211,81 @@ def _resolve_simple_expr(expr, namespace):
     parsed = ast.parse(expr, mode="eval")
     return _eval_node(parsed.body)
 
+def _extract_params_from_sig(sig_str):
+    m = re.search(r"\((.*)\)", sig_str)
+    if not m:
+        return []
+    content = m.group(1)
+    params = []
+    paren_depth = 0
+    current_param = []
+    for char in content:
+        if char in "([{":
+            paren_depth += 1
+            current_param.append(char)
+        elif char in ")]}":
+            paren_depth -= 1
+            current_param.append(char)
+        elif char == "," and paren_depth == 0:
+            params.append("".join(current_param).strip())
+            current_param = []
+        else:
+            current_param.append(char)
+    if current_param:
+        params.append("".join(current_param).strip())
+
+    names = []
+    for p in params:
+        if not p:
+            continue
+        word = re.match(r"^([a-zA-Z_]\w*)", p)
+        if word:
+            name = word.group(1)
+            if name not in ("self", "args", "kwargs"):
+                names.append(name)
+    return names
+
+
+def _extract_invalid_keyword(msg):
+    m1 = re.search(r"got an unexpected keyword argument ['\"](\w+)['\"]", msg)
+    if m1:
+        return m1.group(1)
+    m2 = re.search(r"keyword error on (\w+)", msg)
+    if m2:
+        return m2.group(1)
+    return None
+
+
 def _extract_call_target(code, lineno):
     if lineno is None:
         return None
     try:
-        lines = code.splitlines()
-        if lineno - 1 < 0 or lineno - 1 >= len(lines):
-            return None
-        node = ast.parse(lines[lineno - 1], mode="exec")
+        tree = ast.parse(code)
     except Exception:
+        try:
+            lines = code.splitlines()
+            if lineno - 1 < 0 or lineno - 1 >= len(lines):
+                return None
+            tree = ast.parse(lines[lineno - 1], mode="exec")
+        except Exception:
+            return None
+
+    candidates = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            start = getattr(node, "lineno", None)
+            end = getattr(node, "end_lineno", start)
+            if start is not None and end is not None:
+                if start <= lineno <= end:
+                    candidates.append(node)
+            elif start == lineno:
+                candidates.append(node)
+
+    if not candidates:
         return None
-    for item in ast.walk(node):
-        if isinstance(item, ast.Call):
-            return _node_source(item.func)
-    return None
+
+    candidates.sort(key=lambda n: getattr(n, "end_lineno", getattr(n, "lineno", 0)) - getattr(n, "lineno", 0))
+    return _node_source(candidates[0].func)
 
 def _summarize_mapping_keys(mapping_obj, missing_key):
     result = {
@@ -285,7 +346,7 @@ def _extract_signature_from_docstring(doc, target_name):
     return None
 
 
-def _summarize_callable(target_expr, namespace):
+def _summarize_callable(target_expr, namespace, invalid_keyword=None):
     summary = {
         "call_target": target_expr,
         "callable_signature": None,
@@ -334,6 +395,24 @@ def _summarize_callable(target_expr, namespace):
     if len(sig_str) > 1000:
         sig_str = sig_str[:997] + "..."
     summary["callable_signature"] = sig_str
+
+    if invalid_keyword:
+        try:
+            valid_params = []
+            try:
+                sig = inspect.signature(target)
+                valid_params = [p.name for p in sig.parameters.values() if p.name not in ("self", "args", "kwargs")]
+            except Exception:
+                pass
+            if not valid_params:
+                valid_params = _extract_params_from_sig(sig_str)
+            if valid_params:
+                matches = difflib.get_close_matches(invalid_keyword, valid_params, n=5, cutoff=0.5)
+                if matches:
+                    summary["possible_keywords"] = matches
+        except Exception:
+            pass
+
     return summary
 
 def _format_execution_error(source, exc, namespace=None):
@@ -427,7 +506,23 @@ def _format_execution_error(source, exc, namespace=None):
             except Exception:
                 pass
     elif is_name_error:
-        recovery = {"missing_variable": getattr(exc, "name", None)}
+        missing_var = getattr(exc, "name", None)
+        if not missing_var:
+            m = re.search(r"name '(\w+)' is not defined", str(exc))
+            if m:
+                missing_var = m.group(1)
+        recovery = {"missing_variable": missing_var}
+        abaqus_modules = {
+            "mesh", "part", "material", "assembly", "step", "interaction", 
+            "load", "section", "sketch", "job", "connector", "visualization", 
+            "xyPlot", "displayGroup", "meshEdit", "connectorBehavior", "symbolicConstants"
+        }
+        if missing_var in abaqus_modules:
+            recovery["import_suggestion"] = "from abaqus import %s" % missing_var
+        elif missing_var == "C":
+            recovery["import_suggestion"] = "from abaqusConstants import *"
+        elif missing_var and missing_var.isupper() and len(missing_var) > 1:
+            recovery["import_suggestion"] = "from abaqusConstants import *"
     elif is_syntax_error:
         recovery = {
             "syntax_line": getattr(exc, "lineno", None),
@@ -436,9 +531,10 @@ def _format_execution_error(source, exc, namespace=None):
         }
     elif is_type_error:
         call_target = _extract_call_target(source, lineno)
+        invalid_kw = _extract_invalid_keyword(core_error)
         recovery = {"call_target": call_target}
         if namespace is not None:
-            recovery.update(_summarize_callable(call_target, namespace))
+            recovery.update(_summarize_callable(call_target, namespace, invalid_kw))
     else:
         recovery = {}
 
@@ -772,7 +868,7 @@ toolset = getAFXApp().getAFXMainWindow().getPluginToolset()
 toolset.registerGuiMenuButton(
     object=McpGuiActionForm(toolset, "start"),
     buttonText="Abaqus-Control-MCP|Start MCP Bridge",
-    version="0.1.0",
+    version="1.0",
     author="Codex",
     applicableModules=["Part", "Property", "Assembly", "Step", "Interaction", "Load", "Mesh", "Job", "Visualization"],
     description="Start the TCP bridge for the active Abaqus/CAE session.",
@@ -780,7 +876,7 @@ toolset.registerGuiMenuButton(
 toolset.registerGuiMenuButton(
     object=McpGuiActionForm(toolset, "stop"),
     buttonText="Abaqus-Control-MCP|Stop MCP Bridge",
-    version="0.1.0",
+    version="1.0",
     author="Codex",
     applicableModules=["Part", "Property", "Assembly", "Step", "Interaction", "Load", "Mesh", "Job", "Visualization"],
     description="Stop the TCP bridge.",

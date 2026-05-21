@@ -142,6 +142,8 @@ def _format_error_to_markdown(result: dict[str, Any]) -> str:
         # NameError details
         elif "missing_variable" in recovery:
             parts.append(f"  Undefined Variable: {recovery['missing_variable']}")
+            if recovery.get("import_suggestion"):
+                parts.append(f"  Import Suggestion: {recovery['import_suggestion']}")
 
         # SyntaxError details
         elif "syntax_line" in recovery:
@@ -158,6 +160,8 @@ def _format_error_to_markdown(result: dict[str, Any]) -> str:
                 parts.append(f"  Expected Signature: {recovery['callable_signature']}")
             if recovery.get("callable_summary"):
                 parts.append(f"  Description: {recovery['callable_summary']}")
+            if recovery.get("possible_keywords"):
+                parts.append(f"  Similar Keywords: {recovery['possible_keywords']}")
 
     # Failed code line
     code_excerpt = result.get("code_excerpt")
@@ -503,9 +507,8 @@ def session_telemetry() -> str:
     import json as _json
     try:
         r = _client(5.0).ping()
-        if isinstance(r, dict) and r.get("ok", False):
-            ret = r.get("return_value", r)
-            return _json.dumps(ret, indent=2, ensure_ascii=False)
+        if isinstance(r, dict):
+            return _json.dumps(r, indent=2, ensure_ascii=False)
         return _json.dumps({"connected": False, "detail": str(r)}, indent=2)
     except Exception as e:
         return _json.dumps({"connected": False, "error": str(e)}, indent=2)

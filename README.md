@@ -157,6 +157,8 @@ print(result['return_value'])  # ['Model-1', ...]
 
 | Issue | Solution |
 |-------|----------|
+| `WinError 10061` Connection refused | The bridge service is not running in Abaqus/CAE. Please **first start Abaqus/CAE**, and select **Plug-ins -> Abaqus-Control-MCP -> Start MCP Bridge** from the top menu, then try again. |
+| MCP client says `Connection closed` / Server crashes with `ModuleNotFoundError: No module named 'pydantic_core.core_schema'` | The dependency packages (e.g. `pydantic_core`) in the default Python environment (e.g. Python 3.13) selected by the `uv` tool runner are corrupted or missing DLLs on Windows. Force a reinstall using another installed Python version: `uv tool install --force --python 3.14 .` |
 | `command not found: abaqus-control-mcp-server` | Reinstall or run `abaqus-control-doctor` |
 | No output from server | Normal for stdio MCP server — it doesn't print to stdout |
 | `Module abaqusGui can only be used in Abaqus/CAE GUI` | Use **Plug-ins** menu, not File → Run Script |
