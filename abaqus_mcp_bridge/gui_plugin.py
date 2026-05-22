@@ -845,7 +845,7 @@ class McpGuiActionForm(AFXForm):
                     "    o---o \n"
                     "   /   /|   < Abaqus MCP Bridge Active!\n"
                     "  o---o o   Listening on %s:%s\n"
-                    "  |___|/    %s\n"
+                    "  |___|/    <<--  %s  -->>\n"
                 ) % (HOST, PORT, motto)
                 _announce(banner)
                 _announce("Abaqus MCP GUI plugin log: %s" % LOG_PATH)
