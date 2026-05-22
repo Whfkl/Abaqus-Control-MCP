@@ -98,6 +98,10 @@ Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
 
 **4. Configure your MCP client**
 
+Depending on the AI agent you use, add the MCP server configuration to the corresponding config file.
+
+#### Option A: Claude Code (Claude CLI)
+
 Add the following entry to the `mcpServers` section in `~/.claude.json`:
 
 ```json
@@ -111,9 +115,22 @@ Add the following entry to the `mcpServers` section in `~/.claude.json`:
 }
 ```
 
-> Add to the `mcpServers` section in `~/.claude.json` (global) or under `projects.<path>.mcpServers` for a specific project.
+> Note: Add to the `mcpServers` section in `~/.claude.json` (global) or under `projects.<path>.mcpServers` for a specific project. Claude Code starts the MCP server automatically when you open a session.
 
-Claude Code starts the MCP server automatically when you open a session — no need to start it manually.
+#### Option B: Antigravity (Gemini/Antigravity IDE)
+
+Add the following entry to the `mcpServers` section in `~/.gemini/config/mcp_config.json`. Specifying an absolute path is recommended (replace `<Username>` with your system username):
+
+```json
+"abaqus-control-mcp": {
+  "command": "C:/Users/<Username>/.local/bin/abaqus-control-mcp-server.exe",
+  "env": {
+    "ABAQUS_MCP_HOST": "127.0.0.1",
+    "ABAQUS_MCP_PORT": "48152",
+    "ABAQUS_MCP_TIMEOUT": "120"
+  }
+}
+```
 
 **5. Verify**
 
