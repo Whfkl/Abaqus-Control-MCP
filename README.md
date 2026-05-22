@@ -101,7 +101,7 @@ Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
 Add the following entry to the `mcpServers` section in `~/.claude.json`:
 
 ```json
-"abaqus-control-mcp v1.0": {
+"abaqus-control-mcp": {
   "command": "abaqus-control-mcp-server",
   "env": {
     "ABAQUS_MCP_HOST": "127.0.0.1",

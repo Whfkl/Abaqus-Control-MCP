@@ -101,7 +101,7 @@ Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
 在 `~/.claude.json` 的 `mcpServers` 节点下添加：
 
 ```json
-"abaqus-control-mcp v1.0": {
+"abaqus-control-mcp": {
   "command": "abaqus-control-mcp-server",
   "env": {
     "ABAQUS_MCP_HOST": "127.0.0.1",

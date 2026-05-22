@@ -839,13 +839,14 @@ class McpGuiActionForm(AFXForm):
             if "already running" in message:
                 _announce(message)
             else:
+                motto = "May your meshes converge and your residuals drop."
                 banner = (
                     "\n"
-                    "      ___\n"
-                    "     [o_o]  < Abaqus Control MCP running!\n"
-                    "    /|_|_|\\   Bridge listening on %s:%s\n"
-                    "     |   |\n"
-                ) % (HOST, PORT)
+                    "    o---o \n"
+                    "   /   /|   < Abaqus MCP Bridge Active!\n"
+                    "  o---o o   Listening on %s:%s\n"
+                    "  |___|/    %s\n"
+                ) % (HOST, PORT, motto)
                 _announce(banner)
                 _announce("Abaqus MCP GUI plugin log: %s" % LOG_PATH)
         except Exception as exc:
@@ -868,16 +869,14 @@ toolset = getAFXApp().getAFXMainWindow().getPluginToolset()
 toolset.registerGuiMenuButton(
     object=McpGuiActionForm(toolset, "start"),
     buttonText="Abaqus-Control-MCP|Start MCP Bridge",
-    version="1.0",
-    author="Codex",
+    version="1.0.0",
     applicableModules=["Part", "Property", "Assembly", "Step", "Interaction", "Load", "Mesh", "Job", "Visualization"],
     description="Start the TCP bridge for the active Abaqus/CAE session.",
 )
 toolset.registerGuiMenuButton(
     object=McpGuiActionForm(toolset, "stop"),
     buttonText="Abaqus-Control-MCP|Stop MCP Bridge",
-    version="1.0",
-    author="Codex",
+    version="1.0.0",
     applicableModules=["Part", "Property", "Assembly", "Step", "Interaction", "Load", "Mesh", "Job", "Visualization"],
     description="Stop the TCP bridge.",
 )
