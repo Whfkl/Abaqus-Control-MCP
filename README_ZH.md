@@ -100,7 +100,7 @@ Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
 
 根据所使用的 AI Agent，将 MCP 服务添加至相应配置文件中。
 
-#### 选项 A：Claude Code (Claude CLI)
+#### Claude Code (Claude CLI)
 
 在 `~/.claude.json` 的 `mcpServers` 节点下添加：
 
@@ -117,13 +117,13 @@ Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
 
 > 提示：添加到 `~/.claude.json` 的 `mcpServers` 节点下（全局），或对应项目的 `projects.<path>.mcpServers` 下（仅该项目生效）。Claude Code 会在会话启动时自动拉起 MCP 服务。
 
-#### 选项 B：Antigravity (Gemini/Antigravity IDE)
+#### Antigravity (Gemini/Antigravity IDE)
 
-在 `~/.gemini/config/mcp_config.json` 的 `mcpServers` 节点下添加。建议使用绝对路径（将 `<Username>` 替换为你的系统用户名）：
+在 `~/.gemini/config/mcp_config.json` 的 `mcpServers` 节点下添加。
 
 ```json
 "abaqus-control-mcp": {
-  "command": "C:/Users/<Username>/.local/bin/abaqus-control-mcp-server.exe",
+  "command": "abaqus-control-mcp-server",
   "env": {
     "ABAQUS_MCP_HOST": "127.0.0.1",
     "ABAQUS_MCP_PORT": "48152",
