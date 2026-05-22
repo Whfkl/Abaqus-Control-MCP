@@ -91,7 +91,22 @@ def _client(timeout: float | None = None) -> AbaqusBridgeClient:
 
 async def _exec(code: str, timeout: float | None = None) -> dict[str, Any]:
     """Execute Python code in Abaqus and return the result dict."""
-    return await anyio.to_thread.run_sync(_client(timeout).execute, code)
+    try:
+        return await anyio.to_thread.run_sync(_client(timeout).execute, code)
+    except ConnectionRefusedError as e:
+        raise RuntimeError(
+            "无法连接到 Abaqus 桥接服务 (Connection Refused)。\n"
+            "请检查：\n"
+            "1. 是否已经正常启动了 Abaqus/CAE 软件？\n"
+            "2. 是否已在 Abaqus 顶部菜单栏激活了插件：Plug-ins -> Abaqus-Control-MCP -> Start MCP Bridge\n"
+            f"原报错信息: {e}"
+        )
+    except TimeoutError as e:
+        raise RuntimeError(
+            "连接 Abaqus 桥接服务超时 (Timeout)。\n"
+            "请检查 Abaqus 是否已无响应，或尝试在 Abaqus 中重启插件 (Stop & Start MCP Bridge)。\n"
+            f"原报错信息: {e}"
+        )
 
 
 def _format_error_to_markdown(result: dict[str, Any]) -> str:
