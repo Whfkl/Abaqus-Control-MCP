@@ -461,30 +461,46 @@ async def capture_viewport(
     """Capture a screenshot of an Abaqus viewport as a base64-encoded image.
 
     Leave viewport_name empty to use the current viewport.
-    Supported formats: PNG, JPEG, TIFF, SVG.
+    Supported formats: PNG, TIFF, SVG, EPS, PS (falls back to PNG if unsupported).
     """
     code = r"""
 import os, tempfile, base64
 from abaqus import session
+import abaqusConstants
 
 vp_name = __VP__
-fmt = __FMT__
+fmt_str = __FMT__
+
+fmt_map = {
+    'PNG': abaqusConstants.PNG,
+    'TIFF': abaqusConstants.TIFF,
+    'PS': abaqusConstants.PS,
+    'EPS': abaqusConstants.EPS,
+    'SVG': abaqusConstants.SVG,
+}
+fmt = fmt_map.get(fmt_str.upper(), abaqusConstants.PNG)
 
 result = {}
 try:
     if not vp_name or vp_name not in session.viewports.keys():
         vp_name = session.currentViewportName
     vp = session.viewports[vp_name]
-    tmp = tempfile.NamedTemporaryFile(suffix='.' + fmt.lower(), delete=False)
+    tmp = tempfile.NamedTemporaryFile(suffix='.' + fmt_str.lower(), delete=False)
+    tmp_name = tmp.name
     tmp.close()
-    vp.view.print(filename=tmp.name, format=fmt.upper(), options='')
-    with open(tmp.name, 'rb') as f:
+    
+    session.printToFile(fileName=tmp_name, format=fmt, canvasObjects=(vp,))
+    
+    with open(tmp_name, 'rb') as f:
         b64 = base64.b64encode(f.read()).decode('ascii')
-    os.unlink(tmp.name)
+    try:
+        os.unlink(tmp_name)
+    except Exception:
+        pass
     result = {
         'success': True,
         'viewport': vp_name,
-        'format': fmt.lower(),
+        'format': fmt_str.lower(),
         'image_base64': b64,
         'size_bytes': len(b64) * 3 // 4,
     }
