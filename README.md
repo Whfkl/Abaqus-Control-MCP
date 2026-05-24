@@ -123,7 +123,7 @@ Add the following entry to the `mcpServers` section in `~/.gemini/config/mcp_con
 
 ```json
 "abaqus-control-mcp": {
-  "command": "C:/Users/<Username>/.local/bin/abaqus-control-mcp-server.exe",
+  "command": "abaqus-control-mcp-server",
   "env": {
     "ABAQUS_MCP_HOST": "127.0.0.1",
     "ABAQUS_MCP_PORT": "48152",
