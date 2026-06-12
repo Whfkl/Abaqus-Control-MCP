@@ -11,6 +11,16 @@
 
 > **旧版 Abaqus** 自带 Python 2。如果你的 Abaqus 使用 Python 2，请使用 [Python 2 兼容版本](https://github.com/hp283260133-bit/Abaqus-Control-MCP-abaqus2021)。
 
+## 社区采用与生态影响
+
+自开源以来，Abaqus-Control-MCP 的设计与实现已被其他开源项目采用并进一步发展。我们很高兴看到本项目推动 AI 与工程仿真的结合，并逐渐成为相关工具的重要技术基础。
+
+- [CAE-Agent-Hub](https://github.com/Cai-aa/CAE-Agent-Hub) 在 2026 年 5 月 25 日的提交 [`5bd51ff`](https://github.com/Cai-aa/CAE-Agent-Hub/commit/5bd51ff41cf39f5300451684fd90039ce9167c10) 中采用并改写了本项目的实时执行与诊断架构，包括本地 socket bridge、GUI 主线程调度、持久化执行上下文，以及基于 AST 的错误诊断与恢复机制。
+  - 本项目相关上游实现已包含在 2026 年 5 月 10 日的首次发布提交 [`cc4ab0b`](https://github.com/Whfkl/Abaqus-Control-MCP/commit/cc4ab0bc8e9ed5bea8f8a9e6de5d8471345acf4a) 中。
+  - CAE-Agent-Hub 已在其 [`THIRD_PARTY_NOTICES.md`](https://github.com/Cai-aa/CAE-Agent-Hub/blob/5bd51ff41cf39f5300451684fd90039ce9167c10/MCP/Abaqus/THIRD_PARTY_NOTICES.md) 中依据 MIT License 标注来源。
+
+我们欢迎并鼓励开发者基于 Abaqus-Control-MCP 探索、改进和构建新的工具。开源的价值在于让优秀的想法被复用、发展，并惠及更广泛的社区。若您的项目采用了本项目的设计或实现，欢迎提交 Issue 或 Pull Request，与社区分享您的成果并加入此列表。让我们共同探索 AI 驱动工程仿真的更多可能。
+
 ### 为什么选它？
 
 - **直接在 GUI 中工作** — 操作会发生在当前 Abaqus 窗口中，几何、网格和结果都能即时看到。

@@ -11,6 +11,16 @@
 
 > **Older Abaqus versions** ship Python 2. If your Abaqus uses Python 2, use the [Python 2 compatible fork](https://github.com/hp283260133-bit/Abaqus-Control-MCP-abaqus2021) instead.
 
+## Community Adoption and Ecosystem Impact
+
+Since its open-source release, the designs and implementations of Abaqus-Control-MCP have been adopted and further developed by other open-source projects. We are glad to see this project advancing the integration of AI and engineering simulation and serving as a technical foundation for related tools.
+
+- [CAE-Agent-Hub](https://github.com/Cai-aa/CAE-Agent-Hub) adopted and adapted this project's live execution and diagnostic architecture in commit [`5bd51ff`](https://github.com/Cai-aa/CAE-Agent-Hub/commit/5bd51ff41cf39f5300451684fd90039ce9167c10) on May 25, 2026, including the local socket bridge, GUI-thread dispatch, persistent execution context, and AST-driven error diagnosis and recovery mechanisms.
+  - The relevant upstream implementation was available in the initial Abaqus-Control-MCP release, commit [`cc4ab0b`](https://github.com/Whfkl/Abaqus-Control-MCP/commit/cc4ab0bc8e9ed5bea8f8a9e6de5d8471345acf4a), on May 10, 2026.
+  - CAE-Agent-Hub provides attribution under the MIT License in its [`THIRD_PARTY_NOTICES.md`](https://github.com/Cai-aa/CAE-Agent-Hub/blob/5bd51ff41cf39f5300451684fd90039ce9167c10/MCP/Abaqus/THIRD_PARTY_NOTICES.md).
+
+We welcome and encourage developers to explore, improve, and build new tools upon Abaqus-Control-MCP. The value of open source lies in enabling good ideas to be reused, advanced, and shared with the broader community. If your project adopts designs or implementations from this project, feel free to open an Issue or submit a Pull Request to share your work and be included in this list. Together, we can explore more possibilities for AI-driven engineering simulation.
+
 ### Why this?
 
 - **Work directly in the live GUI** — actions run in your active Abaqus window, so geometry, mesh, and results stay visible as they change.
