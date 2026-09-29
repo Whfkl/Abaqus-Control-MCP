@@ -7,17 +7,17 @@ The release ZIP contains `Abaqus-Control-MCP-Server.exe`, `abaqus_mcp_gui_plugin
 ## Install / 安装
 
 1. Extract the ZIP to a stable directory. Do not run the executable by double-clicking it: it communicates with MCP clients over standard input and output.
-2. Copy `abaqus_mcp_gui_plugin.py` to `%USERPROFILE%\abaqus_plugins\abaqus_mcp_gui_plugin.py` (create the directory if needed), then restart Abaqus/CAE.
-3. In Abaqus/CAE, choose **Plug-ins → Abaqus-Control-MCP → Start MCP Bridge**.
-4. Register the full path to `Abaqus-Control-MCP-Server.exe` as a **stdio** MCP server in Codex, Claude Code, or another client. For Codex, replace the example path:
+2. Copy `abaqus_mcp_gui_plugin.py` to `%USERPROFILE%\abaqus_plugins\abaqus_mcp_gui_plugin.py` (create the directory if needed). If Abaqus uses a different plugin directory, copy it there instead.
+3. Register the full path to `Abaqus-Control-MCP-Server.exe` as a **stdio** MCP server in Codex, Claude Code, or another client. For Codex, replace the example path:
 
    ```powershell
    codex mcp add abaqus-control-mcp --env ABAQUS_MCP_HOST=127.0.0.1 --env ABAQUS_MCP_PORT=48152 --env ABAQUS_MCP_TIMEOUT=120 -- "C:\Tools\Abaqus-Control-MCP\Abaqus-Control-MCP-Server.exe"
    ```
 
-5. Open a new client session and call `ping`. The server exits when its MCP client disconnects.
+4. Start or restart Abaqus/CAE so it loads the plugin, then choose **Plug-ins → Abaqus-Control-MCP → Start MCP Bridge**.
+5. Open a new client session and call `ping`, then `run_python` with `result = list(mdb.models.keys())`. The server exits when its MCP client disconnects.
 
-解压后将插件复制到 `%USERPROFILE%\abaqus_plugins\abaqus_mcp_gui_plugin.py`，重启 Abaqus/CAE 并启动桥接。在 MCP 客户端中将 exe 的完整路径配置为 stdio 服务端，开启新的客户端会话后调用 `ping`。exe 由客户端启动，不需要双击。
+安装顺序：解压发行包 → 将插件复制到 `%USERPROFILE%\abaqus_plugins\abaqus_mcp_gui_plugin.py` → 在 MCP 客户端中配置 exe 的完整路径 → 启动或重启 Abaqus/CAE 并启动桥接 → 开启新客户端会话调用 `ping` 和 `run_python`。exe 由客户端启动，不需要双击。
 
 ## Build from source / 从源码构建
 

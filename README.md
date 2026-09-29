@@ -34,31 +34,36 @@ The server runs in its own Python environment or as a standalone Windows executa
 
 ## Quick start
 
-**Requirements:** a running Abaqus/CAE with Python 3 support. The source installation needs Python 3.10+ and [`uv`](https://docs.astral.sh/uv/) or `pip`; the Windows release executable needs no separate Python installation for the server. Abaqus versions with Python 2 need the [compatible fork](https://github.com/hp283260133-bit/Abaqus-Control-MCP-abaqus2021).
+**Requirements:** Abaqus/CAE with Python 3 support. A source installation needs Python 3.10+ and [`uv`](https://docs.astral.sh/uv/) or `pip`; the Windows release executable needs no separate Python installation for the server. Abaqus versions with Python 2 need the [compatible fork](https://github.com/hp283260133-bit/Abaqus-Control-MCP-abaqus2021).
 
-1. Install the server and GUI plugin:
+1. **Get the MCP server.** Install from source:
 
    ```bash
    uv tool install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
-   abaqus-control-setup
    ```
 
-   For development from a checkout, run `uv sync` and `uv run abaqus-control-setup` instead. Restart Abaqus/CAE after installing or updating the plugin.
+   On Windows, you can instead extract the [release ZIP](docs/windows-release.md) and use `Abaqus-Control-MCP-Server.exe`. For development from a checkout, run `uv sync` and use `uv run` for the commands below.
 
-   For the standalone Windows release, use the executable and GUI plugin in the release ZIP. See [Windows release setup](docs/windows-release.md). The GUI plugin still requires Abaqus/CAE.
+2. **Put the GUI plugin in Abaqus's plugin directory.** For the `uv tool` installation, run `abaqus-control-setup` (or `uv run abaqus-control-setup` from a checkout). This copies `abaqus_mcp_gui_plugin.py` to `~/abaqus_plugins/` by default. For the Windows release ZIP, copy its `abaqus_mcp_gui_plugin.py` to `%USERPROFILE%\abaqus_plugins\`. If Abaqus uses a different plugin directory, set `ABAQUS_MCP_PLUGIN_DIR` for setup or copy the file there yourself.
 
-2. In Abaqus/CAE, choose **Plug-ins → Abaqus-Control-MCP → Start MCP Bridge**.
-
-3. Register the server in your MCP client. For Codex:
+3. **Configure your MCP client.** For Codex with the source installation:
 
    ```bash
    codex mcp add abaqus-control-mcp --env ABAQUS_MCP_HOST=127.0.0.1 --env ABAQUS_MCP_PORT=48152 --env ABAQUS_MCP_TIMEOUT=120 -- abaqus-control-mcp-server
    codex mcp get abaqus-control-mcp
    ```
 
-   For Claude Code, add a stdio MCP server using command `abaqus-control-mcp-server` and the same three environment variables. Set the client's tool timeout above `ABAQUS_MCP_TIMEOUT` for long CAE operations. Open a new client session after changing MCP configuration.
+   For the Windows release, replace `abaqus-control-mcp-server` with the full path to `Abaqus-Control-MCP-Server.exe`. In Claude Code or another client, register the same command or exe as a **stdio** MCP server with the same environment variables. Set the client's tool timeout above `ABAQUS_MCP_TIMEOUT` for long CAE operations.
 
-4. Check the bridge with `abaqus-control-check`. Ask the client to call `ping`, then `run_python` with `result = list(mdb.models.keys())`.
+4. **Open Abaqus/CAE and test.** Start or restart Abaqus/CAE so it loads the plugin, then choose **Plug-ins → Abaqus-Control-MCP → Start MCP Bridge**. Open a new MCP client session, call `ping`, then call `run_python` with `result = list(mdb.models.keys())`. For a source installation, `abaqus-control-check` provides an additional connection check.
+
+### Install with an AI agent
+
+Copy this prompt into Codex, Claude Code, or another local agent with file and terminal access:
+
+```text
+Install Abaqus-Control-MCP from https://github.com/Whfkl/Abaqus-Control-MCP on this computer. Check the OS and the MCP client I am using. On Windows, use the matching release ZIP and standalone server exe if available; otherwise install the server with uv. Then put abaqus_mcp_gui_plugin.py in the Abaqus plugin directory (normally ~/abaqus_plugins, or %USERPROFILE%\abaqus_plugins on Windows). Configure my current MCP client to launch the server over stdio, using its full exe path or the installed command, without changing unrelated MCP entries. After configuration, tell me to open or restart Abaqus/CAE and select Plug-ins → Abaqus-Control-MCP → Start MCP Bridge. Open a new client session and verify ping plus run_python with code: result = list(mdb.models.keys()). Report the installed paths and actual test results; if Abaqus/CAE is unavailable, report which setup steps are complete and what remains to test.
+```
 
 ## Six tools
 

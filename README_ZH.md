@@ -34,31 +34,36 @@ flowchart LR
 
 ## 快速开始
 
-**需要：**已安装并运行的 Python 3 版 Abaqus/CAE。源码安装服务端需要 Python 3.10+，推荐 [`uv`](https://docs.astral.sh/uv/)；Windows 发行版 exe 的服务端无需另行安装 Python。Python 2 版 Abaqus 请使用[兼容分支](https://github.com/hp283260133-bit/Abaqus-Control-MCP-abaqus2021)。
+**需要：**已安装 Python 3 版 Abaqus/CAE。源码安装服务端需要 Python 3.10+，推荐 [`uv`](https://docs.astral.sh/uv/)；Windows 发行版 exe 的服务端无需另行安装 Python。Python 2 版 Abaqus 请使用[兼容分支](https://github.com/hp283260133-bit/Abaqus-Control-MCP-abaqus2021)。
 
-1. 安装服务端和 GUI 插件：
+1. **获取 MCP 服务端。** 源码安装：
 
    ```bash
    uv tool install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
-   abaqus-control-setup
    ```
 
-   在本地源码中开发时使用 `uv sync` 和 `uv run abaqus-control-setup`。安装或更新插件后重启 Abaqus/CAE。
+   Windows 也可以解压[发行 ZIP](docs/windows-release.md)，直接使用 `Abaqus-Control-MCP-Server.exe`。从本地源码开发时先运行 `uv sync`，后续命令使用 `uv run`。
 
-   Windows 独立发行包包含服务端 exe 和 GUI 插件，安装步骤见 [Windows 发行包说明](docs/windows-release.md)。GUI 插件仍需在 Abaqus/CAE 中运行。
+2. **将 GUI 插件放入 Abaqus 插件目录。** 用 `uv tool` 安装的，运行 `abaqus-control-setup`；在源码目录开发的，运行 `uv run abaqus-control-setup`。默认会把 `abaqus_mcp_gui_plugin.py` 复制到 `~/abaqus_plugins/`。使用 Windows 发行 ZIP 的，把其中的同名文件复制到 `%USERPROFILE%\abaqus_plugins\`。若 Abaqus 使用其他插件目录，请在安装前设置 `ABAQUS_MCP_PLUGIN_DIR`，或自行复制到实际目录。
 
-2. 在 Abaqus/CAE 菜单选择 **Plug-ins → Abaqus-Control-MCP → Start MCP Bridge**。
-
-3. 在 MCP 客户端注册服务端。Codex 示例：
+3. **配置 MCP 客户端。** 源码安装后的 Codex 示例：
 
    ```bash
    codex mcp add abaqus-control-mcp --env ABAQUS_MCP_HOST=127.0.0.1 --env ABAQUS_MCP_PORT=48152 --env ABAQUS_MCP_TIMEOUT=120 -- abaqus-control-mcp-server
    codex mcp get abaqus-control-mcp
    ```
 
-   Claude Code 中添加 stdio MCP 服务端，命令为 `abaqus-control-mcp-server`，环境变量同上。耗时操作时，客户端的工具超时应大于 `ABAQUS_MCP_TIMEOUT`。修改配置后开启新的客户端会话。
+   使用 Windows 发行版时，把 `abaqus-control-mcp-server` 替换成 exe 的完整路径。在 Claude Code 或其他客户端中，以 **stdio** 方式注册同一命令或 exe，并设置相同的环境变量。耗时操作时，客户端的工具超时应大于 `ABAQUS_MCP_TIMEOUT`。
 
-4. 运行 `abaqus-control-check` 检查连接；再让客户端调用 `ping` 和 `run_python(code="result = list(mdb.models.keys())")`。
+4. **打开 Abaqus/CAE 并测试。** 启动或重启 Abaqus/CAE，使其加载插件；在菜单中选择 **Plug-ins → Abaqus-Control-MCP → Start MCP Bridge**。开启新的 MCP 客户端会话，调用 `ping`，再调用 `run_python(code="result = list(mdb.models.keys())")`。源码安装还可运行 `abaqus-control-check` 检查连接。
+
+### 让 AI 自动安装
+
+把以下提示词直接复制到有本地文件和终端权限的 Codex、Claude Code 等智能体中：
+
+```text
+请在这台电脑上安装 https://github.com/Whfkl/Abaqus-Control-MCP 。先检查操作系统和我当前使用的 MCP 客户端。Windows 上如有与当前项目版本匹配的发行 ZIP，优先使用其中的独立服务端 exe；否则用 uv 安装服务端。然后把 abaqus_mcp_gui_plugin.py 放进 Abaqus 插件目录（通常是 ~/abaqus_plugins，Windows 为 %USERPROFILE%\abaqus_plugins）。接着将服务端按 stdio 方式配置到我当前的 MCP 客户端：使用 exe 完整路径或已安装的命令，不改动无关 MCP 配置。配置完成后提醒我打开或重启 Abaqus/CAE，并选择 Plug-ins → Abaqus-Control-MCP → Start MCP Bridge。开启新的客户端会话，实际调用 ping，再调用 run_python，代码为 result = list(mdb.models.keys())。最后报告安装路径和实际测试结果；如果当前无法启动 Abaqus/CAE，请说明已完成哪些步骤、还差哪项实测。
+```
 
 ## 六个工具
 

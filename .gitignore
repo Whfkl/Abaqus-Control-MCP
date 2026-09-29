@@ -1,21 +1,43 @@
+# Python environments, local tests and caches
 .venv/
 .venv-build/
+tests/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Build and packaging outputs
 dist/
 build/
 *.egg-info/
+
+# Local editor and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Abaqus session and solver outputs
 abaqus.rpy*
 abaqus.rec*
-abaqus*.log
 abaqus.guiState
+*.log
 *.cae
 *.jnl
+*.lck
+*.com
+*.prt
+*.dat
 *.msg
 *.odb
+*.odb_f
 *.sim
 *.sta
 .claude/
