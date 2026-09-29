@@ -1,13 +1,13 @@
 [project]
 name = "abaqus-control-mcp"
-version = "1.0.0"
-description = "Local MCP bridge for real-time control of Abaqus/CAE through Claude, Cursor, and other MCP clients."
+version = "2.0.0"
+description = "Local MCP bridge for real-time control of Abaqus/CAE through Codex, Claude Code, and other MCP clients."
 readme = "README.md"
 requires-python = ">=3.10"
 keywords = ["abaqus", "mcp", "automation", "cae", "finite-element", "claude", "ai"]
 dependencies = [
-    "mcp>=1.0.0",
-    "anyio>=3.0.0",
+    "mcp>=2.0,<3",
+    "anyio>=4.9",
 ]
 
 [project.scripts]

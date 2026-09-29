@@ -1,15 +1,102 @@
 # Abaqus Control MCP
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/downloads/)
+**面向 Abaqus/CAE 自动化的本地 MCP 桥接。** 通过 Codex、Claude Code 等客户端运行 CAE Python、监测作业、查询 ODB 和获取视口图像。
 
-[English](README.md) | 中文
+![智能体经本地桥接连接到 CAE 网格模型与结果云图](assets/hero.png)
 
-> **让 AI 可以直接驱动 Abaqus。** 只要描述你想要的模型——几何、材料、载荷、分析步——AI 就能在你的 Abaqus/CAE 会话里执行对应操作。
+[English](README.md) · [快速开始](#快速开始) · [六个工具](#六个工具) · [架构](#工作原理)
 
-**Abaqus Control MCP** 把 Claude Code、Codex、Antigravity 以及其他 MCP 兼容客户端连接到正在运行的 Abaqus/CAE。你描述任务，AI 把它转成 Abaqus 操作，模型会实时更新。
+**版本 2.0.0** · MCP 协议 `2026-07-28` · 适用于 Codex、Claude Code 等 MCP 客户端的本地桥接
 
-> **旧版 Abaqus** 自带 Python 2。如果你的 Abaqus 使用 Python 2，请使用 [Python 2 兼容版本](https://github.com/hp283260133-bit/Abaqus-Control-MCP-abaqus2021)。
+## 可以做什么
+
+- **直接操作当前 CAE 会话。** `run_python` 在 Abaqus 内核执行 Python，访问当前 `mdb` 和 `session`；模型变化在 GUI 中可见。
+- **每次结果可追溯。** 每次桥接调用都有独立 `executionId`。返回值、输出和精简错误诊断只对应本次调用；多行脚本需要显式赋值 `result` 才有返回值。
+- **判断求解是否真正结束。** `monitor_job_status` 综合 CAE 状态以及 `.log`、`.sta`、`.dat`、`.msg`，返回终态、步与增量、诊断和证据。可通过 `terminate=true` 请求终止，并单独查看是否确认。
+- **直接查询 ODB 数值。** `inspect_odb` 除了列出步、帧和变量，还可查询指定步、帧、集合、变量的最小/最大值和历史曲线；步时间分别标为起始、结束和持续时间。
+- **让智能体看见视口。** `capture_viewport` 返回 MCP 原生图片内容块，也可保存到文件；结构化文本不含图片 base64。
+
+`run_python` 拥有与 Abaqus 脚本控制台相同的权限。工程师应检查智能体生成的建模与作业命令，并复核分析结果。
+
+## 工作原理
+
+```mermaid
+flowchart LR
+    A[Codex / Claude Code / MCP 客户端] -->|MCP 2026-07-28 · stdio| S[MCP 服务端]
+    S -->|本地 socket · executionId| P[Abaqus/CAE GUI 插件]
+    P -->|GUI 主线程| K[Abaqus Python 内核]
+    K --> M[(模型数据库 · 作业 · ODB)]
+    K -->|输出 · 诊断 · 图片| P
+    P --> S --> A
+```
+
+服务端可运行在独立 Python 环境中，也可使用 Windows 独立 exe；插件在 Abaqus/CAE 内使用 Abaqus 自带的 Python。桥接默认监听 `127.0.0.1:48152`。
+
+## 快速开始
+
+**需要：**已安装并运行的 Python 3 版 Abaqus/CAE。源码安装服务端需要 Python 3.10+，推荐 [`uv`](https://docs.astral.sh/uv/)；Windows 发行版 exe 的服务端无需另行安装 Python。Python 2 版 Abaqus 请使用[兼容分支](https://github.com/hp283260133-bit/Abaqus-Control-MCP-abaqus2021)。
+
+1. 安装服务端和 GUI 插件：
+
+   ```bash
+   uv tool install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
+   abaqus-control-setup
+   ```
+
+   在本地源码中开发时使用 `uv sync` 和 `uv run abaqus-control-setup`。安装或更新插件后重启 Abaqus/CAE。
+
+   Windows 独立发行包包含服务端 exe 和 GUI 插件，安装步骤见 [Windows 发行包说明](docs/windows-release.md)。GUI 插件仍需在 Abaqus/CAE 中运行。
+
+2. 在 Abaqus/CAE 菜单选择 **Plug-ins → Abaqus-Control-MCP → Start MCP Bridge**。
+
+3. 在 MCP 客户端注册服务端。Codex 示例：
+
+   ```bash
+   codex mcp add abaqus-control-mcp --env ABAQUS_MCP_HOST=127.0.0.1 --env ABAQUS_MCP_PORT=48152 --env ABAQUS_MCP_TIMEOUT=120 -- abaqus-control-mcp-server
+   codex mcp get abaqus-control-mcp
+   ```
+
+   Claude Code 中添加 stdio MCP 服务端，命令为 `abaqus-control-mcp-server`，环境变量同上。耗时操作时，客户端的工具超时应大于 `ABAQUS_MCP_TIMEOUT`。修改配置后开启新的客户端会话。
+
+4. 运行 `abaqus-control-check` 检查连接；再让客户端调用 `ping` 和 `run_python(code="result = list(mdb.models.keys())")`。
+
+## 六个工具
+
+| 工具 | 用途 | 常用输入 |
+| --- | --- | --- |
+| `ping` | 检查 CAE 连接、模型及视口 | 无 |
+| `run_python` | 执行 Abaqus Python，返回本次输出与完整异常位置 | `code` |
+| `set_workdir` | 设置已存在的绝对工作目录 | `path` |
+| `monitor_job_status` | 查询作业进度、终态和诊断；可请求终止并确认 | `job_name`、可选 `terminate`、`since` |
+| `inspect_odb` | 查看 ODB 概览、场变量范围或历史曲线 | `odb_path`，可选步、帧、变量、集合、分量、历史区域 |
+| `capture_viewport` | 返回原生图片，也可保存；SVG/EPS/PS 需提供保存路径 | 可选视口、格式、路径 |
+
+### 常用调用
+
+```text
+run_python(code="print(list(mdb.models.keys()))")
+set_workdir(path="D:/analysis/run-01")
+monitor_job_status(job_name="Job-1")
+inspect_odb(odb_path="D:/analysis/run-01/Job-1.odb", step="Step-1", frame=-1, variable="U", component="U3")
+inspect_odb(odb_path="D:/analysis/run-01/Job-1.odb", step="Step-1", history_region="Assembly ASSEMBLY", history_variable="ALLIE")
+capture_viewport(save_path="D:/analysis/run-01/viewport.png")
+```
+
+CAE 状态与文件证据冲突时，`monitor_job_status` 会返回 `UNKNOWN`。若当前 CAE 中没有此作业，仅凭文件标记也返回 `UNKNOWN`；可以用 Unix 时间戳 `since` 指定本次提交时间，排除旧日志。发出 kill 请求不等于已确认终止。若 Python 执行中超时，结果也不能视为已停止，不要盲目重试同一建模脚本。
+
+向量变量不指定 `component` 时统计模长；张量变量需指定分量。历史曲线最多返回 `max_points` 个采样点，并同时给出原始点数。ODB 以只读方式打开。
+
+## 配置与排障
+
+| 环境变量 | 默认值 | 用途 |
+| --- | --- | --- |
+| `ABAQUS_MCP_HOST` | `127.0.0.1` | GUI 桥接地址 |
+| `ABAQUS_MCP_PORT` | `48152` | GUI 桥接端口 |
+| `ABAQUS_MCP_TIMEOUT` | `120` | 等待内核调用的秒数 |
+| `ABAQUS_MCP_PLUGIN_DIR` | `~/abaqus_plugins` | 插件安装目录 |
+| `ABAQUS_MCP_DEBUG` | 关闭 | 在临时目录写入有大小上限的 GUI 插件调试日志 |
+
+运行 `abaqus-control-doctor --verify-connection` 查看安装及连接信息。连接被拒绝时，检查 Abaqus/CAE 是否打开、是否点击 **Start MCP Bridge**。更新插件后要重启 CAE 才能验证插件侧的新行为。GUI 插件默认不生成请求日志；需要排障时，在启动 CAE 前设置 `ABAQUS_MCP_DEBUG=1`，即可启用轮转调试日志。stdio MCP 服务端不向 stdout 输出日志是正常现象。
 
 ## 社区采用与生态影响
 
@@ -21,179 +108,6 @@
 
 我们欢迎并鼓励开发者基于 Abaqus-Control-MCP 探索、改进和构建新的工具。开源的价值在于让优秀的想法被复用、发展，并惠及更广泛的社区。若您的项目采用了本项目的设计或实现，欢迎提交 Issue 或 Pull Request，与社区分享您的成果并加入此列表。让我们共同探索 AI 驱动工程仿真的更多可能。
 
-### 为什么选它？
-
-- **直接在 GUI 中工作** — 操作会发生在当前 Abaqus 窗口中，几何、网格和结果都能即时看到。
-- **流畅建模体验** — 直接通过桥接与 Abaqus 内核交互，让建模过程更顺手。
-- **mdb、session、odb 以及其余 Python API 都可直接使用** — 让 AI 充分发挥能力。
-- **保持会话可交互** — 工程师可以随时查看建模进展，无需中断会话。
-- **仅本地运行** — 桥接只监听 `127.0.0.1:48152`，数据不会离开你的机器。
-- **兼容常见 MCP 客户端** — Claude Code、Codex、Antigravity 等均可接入。
-
-## 安装配置
-
-**AI agent 一键安装**
-
-如果你的 AI agent 支持自然语言安装，只需输入：
-
-```text
-安装 https://github.com/Whfkl/Abaqus-Control-MCP
-```
-
-**1. 安装包**
-
-你可以通过远程 Git 直接安装，或者在克隆仓库后在本地目录安装。
-
-**方式 A：远程 Git 安装 (直接安装)**
-
-`uv`（推荐）：
-
-```bash
-uv tool install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
-```
-
-或 `pip`：
-
-```bash
-pip install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
-```
-
----
-
-**方式 B：本地目录安装 (克隆仓库后在项目根目录下)**
-
-*   **普通本地安装**
-
-    `uv`（推荐）：
-    ```bash
-    uv tool install .
-    ```
-    或 `pip`：
-    ```bash
-    pip install .
-    ```
-
-*   **开发模式 (可编辑安装)**
-    如果你想修改源码并让修改实时生效：
-
-    `uv`（推荐）：
-    ```bash
-    uv tool install --editable .
-    ```
-    或 `pip`：
-    ```bash
-    pip install -e .
-    ```
-
-依赖已声明在 `pyproject.toml` 中，不需要 `requirements.txt`。上述任何一种方式都会安装四个 CLI 命令（`abaqus-control-mcp-server`、`abaqus-control-check`、`abaqus-control-doctor`、`abaqus-control-setup`）。
-
-**2. 安装 GUI 插件**
-
-运行以下命令自动安装：
-
-```bash
-abaqus-control-setup
-```
-
-或者，你也可以**手动**将项目源码中的 `abaqus_mcp_bridge/gui_plugin.py` 复制到 Abaqus 插件目录（通常为 `~/abaqus_plugins/`）。
-
-> [!NOTE]
-> 自动命令或手动安装的目标目录都可以通过设置 `ABAQUS_MCP_PLUGIN_DIR` 环境变量进行自定义覆盖。
-
-**3. 启动 Abaqus/CAE，激活插件**
-
-```
-Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
-```
-
-**4. 配置 MCP 客户端**
-
-根据所使用的 AI Agent，将 MCP 服务添加至相应配置文件中。
-
-#### Claude Code (Claude CLI)
-
-在 `~/.claude.json` 的 `mcpServers` 节点下添加：
-
-```json
-"abaqus-control-mcp": {
-  "command": "abaqus-control-mcp-server",
-  "env": {
-    "ABAQUS_MCP_HOST": "127.0.0.1",
-    "ABAQUS_MCP_PORT": "48152",
-    "ABAQUS_MCP_TIMEOUT": "120"
-  }
-}
-```
-
-> 提示：添加到 `~/.claude.json` 的 `mcpServers` 节点下（全局），或对应项目的 `projects.<path>.mcpServers` 下（仅该项目生效）。Claude Code 会在会话启动时自动拉起 MCP 服务。
-
-#### Antigravity (Gemini/Antigravity IDE)
-
-在 `~/.gemini/config/mcp_config.json` 的 `mcpServers` 节点下添加。
-
-```json
-"abaqus-control-mcp": {
-  "command": "abaqus-control-mcp-server",
-  "env": {
-    "ABAQUS_MCP_HOST": "127.0.0.1",
-    "ABAQUS_MCP_PORT": "48152",
-    "ABAQUS_MCP_TIMEOUT": "120"
-  }
-}
-```
-
-**5. 验证**
-
-```bash
-abaqus-control-check
-```
-
-## MCP 工具
-
-| 工具 | 说明 |
-|------|------|
-| `ping` | 检查连接 + 会话状态（模型、视口、PID） |
-| `run_python` | 在 Abaqus 内核中执行任意 Python 代码 |
-| `monitor_job_status` | 列出作业或读取 `.sta`/`.msg` 获取进度与诊断 |
-| `inspect_odb` | 只读打开 ODB：帧裁剪，变量含分量信息 |
-| `capture_viewport` | 截取视口图像为 base64（PNG/JPEG/TIFF/SVG） |
-| `set_workdir` | 修改 Abaqus 工作目录 |
-
-> 建模、提交作业、提取场/历史输出——全部通过 `run_python` 完成。它的错误返回会包含 traceback、错误行号、代码片段和修复提示。
-
-## 环境变量
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `ABAQUS_MCP_HOST` | `127.0.0.1` | TCP 桥接主机地址 |
-| `ABAQUS_MCP_PORT` | `48152` | TCP 桥接端口 |
-| `ABAQUS_MCP_TIMEOUT` | `120` | 执行超时（秒） |
-| `ABAQUS_MCP_PLUGIN_DIR` | `~/abaqus_plugins` | GUI 插件安装目录 |
-
-## Python API
-
-```python
-from abaqus_mcp_bridge.client import AbaqusBridgeClient
-
-client = AbaqusBridgeClient(timeout=60)
-result = client.execute("from abaqus import mdb; result = list(mdb.models.keys())")
-print(result['return_value'])  # ['Model-1', ...]
-```
-
-## 故障排查
-
-| 问题 | 解决方案 |
-|-------|----------|
-| `WinError 10061` 由于目标计算机积极拒绝，无法连接 | 未在 Abaqus/CAE 中开启桥接服务。请**首先启动 Abaqus/CAE**，并在顶部菜单栏选择 **Plug-ins -> Abaqus-Control-MCP -> Start MCP Bridge** 开启服务，然后再试。 |
-| 安装/更新时提示 `拒绝访问`、`Permission denied` 或 `os error 5` | 说明旧的 `abaqus-control-mcp-server` 进程仍在后台运行（已被 Claude Code/Cursor 占用并锁定文件）。请先关闭占用了该服务的 MCP 客户端（如 Claude Code 或 Cursor），或者在任务管理器中手动结束该进程以释放文件锁定，然后再重新进行安装。 |
-| MCP 客户端提示 `Connection closed` / 崩溃报错 `ModuleNotFoundError: No module named 'pydantic_core.core_schema'` | 这是由于 `uv` 安装工具在默认的 Python 隔离环境（如 Python 3.13）中依赖包（如 `pydantic_core`）编译异常或 DLL 缺失。可以通过强制指定系统上其他的 Python 版本（例如 Python 3.14）重新安装来解决：`uv tool install --force --python 3.14 .` |
-| 找不到 `abaqus-control-mcp-server` | 重新安装或运行 `abaqus-control-doctor` |
-| 服务端无输出 | 正常现象——stdio MCP 服务不向 stdout 输出日志 |
-| `Module abaqusGui can only be used...` | 通过 **Plug-ins** 菜单启动，不要用 File → Run Script |
-| 连接超时 | 先在 Abaqus 内启动插件，**再**启动 MCP 服务 |
-| 模型未出现在 GUI 中 | 运行 `abaqus-control-check`，确认 `"thread": "MainThread"` |
-| Claude Code 看不到 MCP 工具 | 1. 运行 `claude mcp list` 检查 `abaqus` 是否已注册。2. 如果未列出，按第 4 步添加 MCP 配置。3. 改完配置后重启 Claude Code。 |
-
 ## 许可证
 
-MIT — 详见 [LICENSE](LICENSE)。
+MIT，见 [LICENSE](LICENSE)。

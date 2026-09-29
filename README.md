@@ -1,15 +1,102 @@
 # Abaqus Control MCP
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/downloads/)
+**A local MCP bridge for Abaqus/CAE automation.** Run CAE Python, monitor jobs, inspect ODB data, and capture the viewport from Codex, Claude Code, or another MCP client.
 
-[中文](README_ZH.md) | English
+![A coding agent connects through a local bridge to a meshed CAE model and its result contour](assets/hero.png)
 
-> **Let AI drive Abaqus directly.** Describe the model you want — geometry, materials, loads, steps — and let the AI work inside your live Abaqus/CAE session.
+[中文说明](README_ZH.md) · [Installation](#quick-start) · [Tools](#six-tools) · [Architecture](#how-it-works)
 
-**Abaqus Control MCP** connects Claude Code, Codex, Antigravity, and any other MCP-compatible client to a running Abaqus/CAE instance. You describe the task, the AI translates it into Abaqus actions, and the model updates in real time.
+**Version 2.0.0** · MCP protocol `2026-07-28` · Local bridge for Codex, Claude Code, and other MCP clients
 
-> **Older Abaqus versions** ship Python 2. If your Abaqus uses Python 2, use the [Python 2 compatible fork](https://github.com/hp283260133-bit/Abaqus-Control-MCP-abaqus2021) instead.
+## What you can do
+
+- **Work in the open CAE session.** `run_python` runs Abaqus Python against the current `mdb` and `session`; model changes remain visible in the GUI.
+- **Trust each response.** Every bridge call has an `executionId`. Return values, output, and concise error diagnostics belong to that call. A statement script returns a value only when it assigns `result`.
+- **Follow a solve.** `monitor_job_status` combines CAE status with `.log`, `.sta`, `.dat`, and `.msg` evidence. It reports terminal state, progress, diagnostics, and uncertainty. Its `terminate=true` option requests a kill and separately reports confirmation.
+- **Ask the ODB a numerical question.** `inspect_odb` describes steps and frames, summarizes a field by step/frame/set, or returns a bounded history curve. Step `startTime`, `endTime`, and `duration` have explicit meanings.
+- **See the viewport.** `capture_viewport` returns a native MCP image content block; optionally save it to a file. Image base64 stays out of the structured response.
+
+The project is designed for an engineer supervising a live simulation. `run_python` has the same power as the Abaqus scripting console, so review generated modelling and job commands before relying on their results.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A[Codex / Claude Code / MCP client] -->|MCP 2026-07-28 over stdio| S[MCP server]
+    S -->|Local socket · execution ID| P[Abaqus/CAE GUI plugin]
+    P -->|GUI thread| K[Abaqus Python kernel]
+    K --> M[(Model database · jobs · ODB)]
+    K -->|Output, diagnostics, image| P
+    P --> S --> A
+```
+
+The server runs in its own Python environment or as a standalone Windows executable. The plugin runs inside Abaqus/CAE and uses Abaqus's Python. The socket listens on `127.0.0.1:48152` by default.
+
+## Quick start
+
+**Requirements:** a running Abaqus/CAE with Python 3 support. The source installation needs Python 3.10+ and [`uv`](https://docs.astral.sh/uv/) or `pip`; the Windows release executable needs no separate Python installation for the server. Abaqus versions with Python 2 need the [compatible fork](https://github.com/hp283260133-bit/Abaqus-Control-MCP-abaqus2021).
+
+1. Install the server and GUI plugin:
+
+   ```bash
+   uv tool install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
+   abaqus-control-setup
+   ```
+
+   For development from a checkout, run `uv sync` and `uv run abaqus-control-setup` instead. Restart Abaqus/CAE after installing or updating the plugin.
+
+   For the standalone Windows release, use the executable and GUI plugin in the release ZIP. See [Windows release setup](docs/windows-release.md). The GUI plugin still requires Abaqus/CAE.
+
+2. In Abaqus/CAE, choose **Plug-ins → Abaqus-Control-MCP → Start MCP Bridge**.
+
+3. Register the server in your MCP client. For Codex:
+
+   ```bash
+   codex mcp add abaqus-control-mcp --env ABAQUS_MCP_HOST=127.0.0.1 --env ABAQUS_MCP_PORT=48152 --env ABAQUS_MCP_TIMEOUT=120 -- abaqus-control-mcp-server
+   codex mcp get abaqus-control-mcp
+   ```
+
+   For Claude Code, add a stdio MCP server using command `abaqus-control-mcp-server` and the same three environment variables. Set the client's tool timeout above `ABAQUS_MCP_TIMEOUT` for long CAE operations. Open a new client session after changing MCP configuration.
+
+4. Check the bridge with `abaqus-control-check`. Ask the client to call `ping`, then `run_python` with `result = list(mdb.models.keys())`.
+
+## Six tools
+
+| Tool | Purpose | Useful inputs |
+| --- | --- | --- |
+| `ping` | Verify the connected CAE session and identify models and viewports | none |
+| `run_python` | Execute Python; return this call's value, output, and full error location | `code` |
+| `set_workdir` | Set an existing absolute CAE working directory | `path` |
+| `monitor_job_status` | List jobs or inspect progress, terminal evidence, and diagnostics; request termination with confirmation | `job_name`, optional `terminate`, `since` |
+| `inspect_odb` | Describe an ODB; summarize a field or retrieve a history curve | `odb_path`, optional `step`, `frame`, `variable`, `set_name`, `component`, `history_region`, `history_variable` |
+| `capture_viewport` | Return a native image and optionally save it; SVG/EPS/PS exports require a path | optional `viewport_name`, `image_format`, `save_path` |
+
+### Common calls
+
+```text
+run_python(code="print('current models:', list(mdb.models.keys()))")
+set_workdir(path="D:/analysis/run-01")
+monitor_job_status(job_name="Job-1")
+inspect_odb(odb_path="D:/analysis/run-01/Job-1.odb", step="Step-1", frame=-1, variable="U", component="U3")
+inspect_odb(odb_path="D:/analysis/run-01/Job-1.odb", step="Step-1", history_region="Assembly ASSEMBLY", history_variable="ALLIE")
+capture_viewport(save_path="D:/analysis/run-01/viewport.png")
+```
+
+`monitor_job_status` returns `UNKNOWN` when CAE status and file evidence conflict. If the job is absent from CAE, file-only terminal evidence also stays `UNKNOWN` unless `since` supplies the run's submission time as a Unix timestamp. A kill request is distinct from confirmed termination. A timeout while Python is already running has an unknown outcome: do not blindly submit the same modelling command again.
+
+For vector fields, an omitted `component` returns magnitude. For tensor fields, select a component. History curves return at most `max_points` sampled pairs and report the full point count. ODB files are opened read-only.
+
+## Configuration and diagnostics
+
+| Environment variable | Default | Use |
+| --- | --- | --- |
+| `ABAQUS_MCP_HOST` | `127.0.0.1` | GUI bridge address |
+| `ABAQUS_MCP_PORT` | `48152` | GUI bridge port |
+| `ABAQUS_MCP_TIMEOUT` | `120` | Seconds to wait for a kernel call |
+| `ABAQUS_MCP_PLUGIN_DIR` | `~/abaqus_plugins` | Plugin installation directory |
+| `ABAQUS_MCP_DEBUG` | off | Write a bounded GUI plugin debug log in the temporary directory |
+
+Run `abaqus-control-doctor --verify-connection` for installation and connectivity details. If connection is refused, check that Abaqus/CAE is open and **Start MCP Bridge** has been selected. If the GUI plugin was updated, restart CAE before evaluating plugin-side changes. The GUI plugin does not create a request log by default; set `ABAQUS_MCP_DEBUG=1` before starting CAE to enable a rotating debug log. No output from `abaqus-control-mcp-server` on stdout is normal for a stdio MCP server.
 
 ## Community Adoption and Ecosystem Impact
 
@@ -20,179 +107,6 @@ Since its open-source release, the designs and implementations of Abaqus-Control
   - CAE-Agent-Hub provides attribution under the MIT License in its [`THIRD_PARTY_NOTICES.md`](https://github.com/Cai-aa/CAE-Agent-Hub/blob/5bd51ff41cf39f5300451684fd90039ce9167c10/MCP/Abaqus/THIRD_PARTY_NOTICES.md).
 
 We welcome and encourage developers to explore, improve, and build new tools upon Abaqus-Control-MCP. The value of open source lies in enabling good ideas to be reused, advanced, and shared with the broader community. If your project adopts designs or implementations from this project, feel free to open an Issue or submit a Pull Request to share your work and be included in this list. Together, we can explore more possibilities for AI-driven engineering simulation.
-
-### Why this?
-
-- **Work directly in the live GUI** — actions run in your active Abaqus window, so geometry, mesh, and results stay visible as they change.
-- **Full access to Abaqus objects** — `mdb`, `session`, `odb`, and the rest of the Python API are directly available, letting AI do the work.
-- **Keep the session interactive** — engineers can inspect progress at any time without stopping the session.
-- **Stay local** — the bridge listens on `127.0.0.1:48152`, so nothing leaves your machine.
-- **Use any MCP client** — Claude Code, Codex, Antigravity, and other compatible clients can all connect.
-
-
-## Setup
-
-**AI agent one-click install**
-
-If your AI agent supports natural-language installation, just prompt it with:
-
-```text
-install https://github.com/Whfkl/Abaqus-Control-MCP
-```
-
-**1. Install the package**
-
-You can install the package directly via Git, or from a cloned repository in your local directory.
-
-**Option A: Remote Git Install (direct install)**
-
-`uv` (recommended):
-
-```bash
-uv tool install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
-```
-
-Or `pip`:
-
-```bash
-pip install git+https://github.com/Whfkl/Abaqus-Control-MCP.git
-```
-
----
-
-**Option B: Local Directory Install (run inside the cloned project root)**
-
-*   **Standard Local Install**
-
-    `uv` (recommended):
-    ```bash
-    uv tool install .
-    ```
-    Or `pip`:
-    ```bash
-    pip install .
-    ```
-
-*   **Development Mode (editable install)**
-    If you plan to modify the source code and have changes apply dynamically:
-
-    `uv` (recommended):
-    ```bash
-    uv tool install --editable .
-    ```
-    Or `pip`:
-    ```bash
-    pip install -e .
-    ```
-
-Dependencies are declared in `pyproject.toml` — no `requirements.txt` needed. Any of the methods above will install the four CLI commands (`abaqus-control-mcp-server`, `abaqus-control-check`, `abaqus-control-doctor`, `abaqus-control-setup`) to your global environment or active virtual environment.
-
-**2. Install the GUI plugin**
-
-Run the following command to install automatically:
-
-```bash
-abaqus-control-setup
-```
-
-Alternatively, you can **manually** copy `abaqus_mcp_bridge/gui_plugin.py` from the project source to your Abaqus plugins directory (typically `~/abaqus_plugins/`).
-
-> [!NOTE]
-> You can override the target folder for both automatic and manual installations by setting the `ABAQUS_MCP_PLUGIN_DIR` environment variable.
-
-**3. Start Abaqus/CAE, activate the plugin**
-
-```
-Plug-ins → Abaqus-Control-MCP → Start MCP Bridge
-```
-
-**4. Configure your MCP client**
-
-Depending on the AI agent you use, add the MCP server configuration to the corresponding config file.
-
-#### Option A: Claude Code (Claude CLI)
-
-Add the following entry to the `mcpServers` section in `~/.claude.json`:
-
-```json
-"abaqus-control-mcp": {
-  "command": "abaqus-control-mcp-server",
-  "env": {
-    "ABAQUS_MCP_HOST": "127.0.0.1",
-    "ABAQUS_MCP_PORT": "48152",
-    "ABAQUS_MCP_TIMEOUT": "120"
-  }
-}
-```
-
-> Note: Add to the `mcpServers` section in `~/.claude.json` (global) or under `projects.<path>.mcpServers` for a specific project. Claude Code starts the MCP server automatically when you open a session.
-
-#### Option B: Antigravity (Gemini/Antigravity IDE)
-
-Add the following entry to the `mcpServers` section in `~/.gemini/config/mcp_config.json`. Specifying an absolute path is recommended (replace `<Username>` with your system username):
-
-```json
-"abaqus-control-mcp": {
-  "command": "abaqus-control-mcp-server",
-  "env": {
-    "ABAQUS_MCP_HOST": "127.0.0.1",
-    "ABAQUS_MCP_PORT": "48152",
-    "ABAQUS_MCP_TIMEOUT": "120"
-  }
-}
-```
-
-**5. Verify**
-
-```bash
-abaqus-control-check
-```
-
-## MCP Tools
-
-| Tool | Description |
-|------|-------------|
-| `ping` | Check connectivity + session state (models, viewports, PID) |
-| `run_python` | Execute arbitrary Python code in the Abaqus kernel |
-| `monitor_job_status` | List jobs or tail `.sta`/`.msg` for progress and diagnostics |
-| `inspect_odb` | Open ODB read-only: sliced frames, variables with components |
-| `capture_viewport` | Capture viewport screenshot as base64 (PNG/JPEG/TIFF/SVG) |
-| `set_workdir` | Change the Abaqus working directory |
-
-> Model creation, job submission, field/history output extraction — all go through `run_python`. Its error payload includes the traceback, error line, code excerpt, and recovery hints.
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ABAQUS_MCP_HOST` | `127.0.0.1` | TCP bridge host |
-| `ABAQUS_MCP_PORT` | `48152` | TCP bridge port |
-| `ABAQUS_MCP_TIMEOUT` | `120` | Execution timeout in seconds |
-| `ABAQUS_MCP_PLUGIN_DIR` | `~/abaqus_plugins` | GUI plugin target directory |
-
-## Python API
-
-```python
-from abaqus_mcp_bridge.client import AbaqusBridgeClient
-
-client = AbaqusBridgeClient(timeout=60)
-result = client.execute("from abaqus import mdb; result = list(mdb.models.keys())")
-print(result['return_value'])  # ['Model-1', ...]
-```
-
-## Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| `WinError 10061` Connection refused | The bridge service is not running in Abaqus/CAE. Please **first start Abaqus/CAE**, and select **Plug-ins -> Abaqus-Control-MCP -> Start MCP Bridge** from the top menu, then try again. |
-| `Permission denied` / `os error 5` during install or update | An old `abaqus-control-mcp-server` process is still running in the background (used and locked by Claude Code/Cursor). Close the MCP client (such as Claude Code or Cursor) or manually terminate the process in Task Manager to release the file lock, then try installing again. |
-| MCP client says `Connection closed` / Server crashes with `ModuleNotFoundError: No module named 'pydantic_core.core_schema'` | The dependency packages (e.g. `pydantic_core`) in the default Python environment (e.g. Python 3.13) selected by the `uv` tool runner are corrupted or missing DLLs on Windows. Force a reinstall using another installed Python version: `uv tool install --force --python 3.14 .` |
-| `command not found: abaqus-control-mcp-server` | Reinstall or run `abaqus-control-doctor` |
-| No output from server | Normal for stdio MCP server — it doesn't print to stdout |
-| `Module abaqusGui can only be used in Abaqus/CAE GUI` | Use **Plug-ins** menu, not File → Run Script |
-| Connection timed out | Start the Abaqus plugin **before** the MCP server |
-| Model doesn't appear in GUI | Run `abaqus-control-check` — verify `"thread": "MainThread"` |
-| Claude Code doesn't see MCP tools | 1. Run `claude mcp list` to check if `abaqus` is registered. 2. If not listed, add the MCP config as described in Step 4. 3. Restart Claude Code after any config change. |
 
 ## License
 

@@ -25,6 +25,9 @@ def read_message(sock: socket.socket, max_bytes: int = 16 * 1024 * 1024) -> dict
             raise ProtocolError("socket closed before a complete message was received")
         newline = chunk.find(b"\n")
         if newline >= 0:
+            total += newline
+            if total > max_bytes:
+                raise ProtocolError(f"message exceeded {max_bytes} bytes")
             chunks.append(chunk[:newline])
             break
         chunks.append(chunk)
